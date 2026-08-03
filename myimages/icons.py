@@ -544,3 +544,84 @@ def info() -> QIcon:
         p.drawLine(11, 10, 11, 15)
 
     return painted(draw)
+
+
+def wand() -> QIcon:
+    """A wand with a spark: click a colour and its region goes away."""
+
+    def draw(p: QPainter) -> None:
+        p.drawLine(4, 18, 14, 8)
+        p.drawLine(4, 18, 6, 18)
+        spark = QPainterPath()
+        spark.moveTo(16, 3)
+        spark.quadTo(16.6, 6.4, 20, 7)
+        spark.quadTo(16.6, 7.6, 16, 11)
+        spark.quadTo(15.4, 7.6, 12, 7)
+        spark.quadTo(15.4, 6.4, 16, 3)
+        p.drawPath(spark)
+
+    return painted(draw)
+
+
+def eraser() -> QIcon:
+    """A tilted eraser above the line it clears."""
+
+    def draw(p: QPainter) -> None:
+        block = QPainterPath()
+        block.moveTo(8.5, 3.5)
+        block.lineTo(18.5, 8.5)
+        block.lineTo(12.5, 15)
+        block.lineTo(2.5, 10)
+        block.closeSubpath()
+        p.drawPath(block)
+        p.drawLine(QPointF(3, 18.5), QPointF(19, 18.5))
+
+    return painted(draw)
+
+
+def restore_brush() -> QIcon:
+    """The eraser's opposite: a brush laying the picture back down.
+
+    A brush rather than a second eraser with an arrow. The two tools sit side by
+    side and have to be told apart at 22 pixels, where an added arrow is noise.
+    """
+
+    def draw(p: QPainter) -> None:
+        handle = QPainterPath()
+        handle.moveTo(18.5, 3.5)
+        handle.lineTo(9, 13)
+        p.drawPath(handle)
+        p.drawRoundedRect(QRectF(5.4, 11.4, 6.2, 4.6), 1.4, 1.4)
+        p.drawLine(QPointF(6, 16), QPointF(4, 19.5))
+        p.drawLine(QPointF(11, 16), QPointF(13, 19.5))
+
+    return painted(draw)
+
+
+def compare() -> QIcon:
+    """A frame split down the middle: hold to see the picture as it was."""
+
+    def draw(p: QPainter) -> None:
+        p.drawRoundedRect(QRectF(3, 4.5, 16, 13), 2, 2)
+        p.drawLine(QPointF(11, 4.5), QPointF(11, 17.5))
+        left = QPainterPath()
+        left.addRoundedRect(QRectF(3, 4.5, 8, 13), 2, 2)
+        p.fillPath(left, QColor(ICON_COLOUR))
+
+    return painted(draw)
+
+
+def backdrop() -> QIcon:
+    """A checkerboard: what sits behind the parts that were taken away."""
+
+    def draw(p: QPainter) -> None:
+        p.drawRect(QRectF(3, 3, 16, 16))
+        for column in range(4):
+            for row in range(4):
+                if (column + row) % 2:
+                    continue
+                p.fillRect(
+                    QRectF(3 + column * 4, 3 + row * 4, 4, 4), QColor(ICON_COLOUR)
+                )
+
+    return painted(draw)

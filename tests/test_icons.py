@@ -38,6 +38,11 @@ SIMPLE_FACTORIES = [
     icons.subfolders,
     icons.plugin,
     icons.info,
+    icons.wand,
+    icons.eraser,
+    icons.restore_brush,
+    icons.compare,
+    icons.backdrop,
 ]
 
 
