@@ -24,7 +24,7 @@ the diagonal makes a circle drawn on a wide crop come back the wrong size.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -67,7 +67,43 @@ class BrushStroke:
     restore: bool
 
 
-Edit = RegionPick | BrushStroke
+@dataclass(frozen=True)
+class SubjectMask:
+    """One background-removal run, kept at the resolution the model produced.
+
+    The other two edits are geometry and re-derive their pixels from whatever
+    image the list is folded against. A model result cannot: ISNet's input is a
+    fixed 1024 square, so its answer is always exactly those pixels. Storing
+    that square preserves the property the list actually depends on -- one
+    record serving the preview fold and the full-resolution export fold -- at
+    the cost of one megabyte held in memory until Undo drops it.
+
+    ``scaled`` is a memo, not state. Re-stretching a 1024 square to preview size
+    costs about ten milliseconds, which is affordable once and not affordable on
+    every pointer move of a brush drag. It is excluded from equality so two
+    records holding the same mask compare equal whatever either has been
+    stretched to.
+    """
+
+    mask: Image.Image
+    scaled: dict[tuple[int, int], Image.Image] = field(
+        default_factory=dict, compare=False, repr=False
+    )
+
+    def at(self, size: tuple[int, int]) -> Image.Image:
+        """The stored square stretched to ``size``, un-squashing the aspect."""
+        cached = self.scaled.get(size)
+        if cached is not None:
+            return cached
+        # Only one size is ever wanted at a time: the editor alternates between
+        # the preview and, once, the full-resolution save.
+        self.scaled.clear()
+        stretched = self.mask.resize(size, Image.Resampling.LANCZOS)
+        self.scaled[size] = stretched
+        return stretched
+
+
+Edit = RegionPick | BrushStroke | SubjectMask
 
 
 def pixel_position(x: float, y: float, size: tuple[int, int]) -> tuple[int, int]:
@@ -146,6 +182,8 @@ def build_mask(
     for edit in edits:
         if isinstance(edit, RegionPick):
             mask = ImageChops.subtract(mask, region_mask(image, edit))
+        elif isinstance(edit, SubjectMask):
+            mask = ImageChops.multiply(mask, edit.at(image.size))
         else:
             paint_stroke(mask, edit)
     if soften > 0:

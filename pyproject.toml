@@ -51,7 +51,12 @@ dependencies = [
 [project.optional-dependencies]
 trash = ["Send2Trash>=1.8"]
 heif = ["pillow-heif>=0.16"]
+bgremove = ["numpy>=1.24", "onnxruntime>=1.17"]
 dev = [
+    # The segmentation runtime is in dev as well as in bgremove so CI executes
+    # the inference path against the tiny fixture rather than skipping it.
+    "numpy>=1.24",
+    "onnxruntime>=1.17",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-qt>=4.4",
@@ -95,7 +100,12 @@ select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]
 "tests/*" = ["B011"]
 
 [tool.mypy]
-python_version = "3.10"
+# Ahead of requires-python on purpose. numpy's stubs use PEP 695 type statements,
+# which mypy will not even parse below 3.12, and they are reached through Pillow
+# rather than only through our own imports. The interpreter floor is proved by
+# the CI matrix actually running the suite on 3.10, which is stronger evidence
+# than a static setting.
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 warn_unused_ignores = false

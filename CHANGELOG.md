@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The engine behind automatic background removal: the ISNet segmentation model,
+  run through ONNX Runtime directly. The weights are fetched once, verified
+  against their checksum, into `~/.myimages/models/`. It is an optional extra —
+  `pip install "myimages[bgremove]"` — and nothing calls it yet.
+
+
+### Added
+
 - A checkerboard behind transparent pixels in the editor canvas, so a cut-out no
   longer looks like a very dark subject, and a brush outline that follows the
   cursor at the size the edit will actually have. Nothing switches the canvas

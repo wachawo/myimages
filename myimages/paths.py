@@ -41,6 +41,20 @@ def plugins_dir() -> Path:
     return path
 
 
+def models_dir() -> Path:
+    """Directory holding downloaded machine-learning weights.
+
+    Beside the other persisted state rather than in the thumbnail cache: a model
+    is a 170 MiB blob a user will eventually want to find and delete, and this
+    is the directory the module docstring promises holds everything the app
+    keeps. It is also user-writable in every deployment, including the packaged
+    builds whose interpreter prefix is not.
+    """
+    path = data_dir() / "models"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def log_file() -> Path:
     """Path of the rotating log file used by packaged (windowless) builds."""
     return data_dir() / "myimages.log"
