@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "myimages"
+dynamic = ["version"]
+description = "Lightweight photo and video viewer with editing, PDF export and plugins."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Aleksandr", email = "wachawo@gmail.com" }]
+keywords = [
+    "image-viewer",
+    "photo",
+    "video",
+    "gallery",
+    "thumbnails",
+    "pyside6",
+    "qt",
+    "pdf",
+    "gif",
+    "watermark",
+    "duplicates",
+    "batch-rename",
+    "desktop",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Multimedia :: Video :: Conversion",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+trash = ["Send2Trash>=1.8"]
+heif = ["pillow-heif>=0.16"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.6",
+    "black>=24.0",
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/wachawo/myImages"
+Repository = "https://github.com/wachawo/myImages"
+Issues = "https://github.com/wachawo/myImages/issues"
+Changelog = "https://github.com/wachawo/myImages/blob/main/CHANGELOG.md"
+
+[project.scripts]
+myimages = "myimages.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "myimages.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["myimages*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+myimages = ["py.typed"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["myimages"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@overload",
+]

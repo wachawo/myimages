@@ -1,0 +1,139 @@
+name: Publish
+
+# Releases are cut by hand, so the GitHub release is the single publish trigger.
+# Reacting to `push: tags: v*` as well would double-fire whenever a release is
+# created from a freshly pushed tag. workflow_dispatch is the retry path (for a
+# PyPI outage, for example) and must be started from the same tag.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # ci.yml runs on every push, but a release can be cut from a commit whose CI
+    # never ran or was red, so the gate is re-run against the exact released
+    # commit. Lint/format/type checks stay in ci.yml: they do not change what
+    # ships in the artifact.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ffmpeg (for video tests)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,trash]"
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest --cov=myimages --cov-report=term-missing --cov-fail-under=90
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tooling
+        # `packaging` is installed explicitly rather than relied on as a
+        # transitive dependency of build/twine: the version guard below imports
+        # it, and an ImportError there must be impossible, not silent.
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine packaging
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: Verify built version matches the tag
+        # The version is declared once, in myimages/__init__.py, and read from
+        # there by setuptools. A tag cut without bumping it would silently
+        # re-publish (or clash with) the previous version.
+        # Tag names come in through env, never through shell interpolation.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if [ "$EVENT_NAME" = "release" ]; then
+            tag="$RELEASE_TAG"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            tag="$REF_NAME"
+          else
+            echo "::error::Manual runs must be started from a tag, not a branch."
+            exit 1
+          fi
+          case "$tag" in
+            v*) expected="${tag#v}" ;;
+            *) echo "::error::Tag '$tag' does not follow the v<version> scheme."; exit 1 ;;
+          esac
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          if [ "${#wheels[@]}" -ne 1 ] || [ "${#sdists[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one wheel and one sdist, got ${#wheels[@]} and ${#sdists[@]}."
+            exit 1
+          fi
+          built="$(basename "${wheels[0]}")"
+          built="${built#myimages-}"
+          built="${built%%-*}"
+          # Compare canonical PEP 440 forms so v1.0.0-rc1 and 1.0.0rc1 agree.
+          # Each canonicalisation is assigned to its own variable first: inside
+          # an `if [ ... ]` condition `set -e` is suspended, so a failing
+          # `python -c` would yield two empty strings that compare equal and let
+          # a wrong version through. As plain assignments the failure aborts.
+          canon='import sys; from packaging.utils import canonicalize_version; print(canonicalize_version(sys.argv[1]))'
+          expected_canon="$(python -c "$canon" "$expected")"
+          built_canon="$(python -c "$canon" "$built")"
+          if [ "$expected_canon" != "$built_canon" ]; then
+            echo "::error::Tag '$tag' expects version $expected, but the build produced $built. Bump __version__ in myimages/__init__.py."
+            exit 1
+          fi
+          echo "Publishing version $built from tag $tag."
+      - name: Check distribution metadata
+        run: twine check --strict dist/*
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    # Separate job so the OIDC token is minted only here. Nothing in this job
+    # runs project or build-backend code: it downloads the already verified
+    # artifacts and uploads them, which keeps the PyPI-authorized credential out
+    # of reach of every third-party package pulled in during build and test.
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/myimages
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A release run must fail loudly if the version already exists on
+          # PyPI. A manual retry must not: if a previous attempt uploaded the
+          # sdist and then died on the wheel, PyPI answers the re-upload with a
+          # permanent 400 and the retry path would be unusable without this.
+          skip-existing: ${{ github.event_name == 'workflow_dispatch' }}

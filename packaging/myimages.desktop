@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=myImages
+GenericName=Photo and video viewer
+Comment=Lightweight photo and video viewer, editor and converter
+Exec=myimages
+Icon=myimages
+Terminal=false
+Categories=Graphics;Viewer;Photography;
+MimeType=image/jpeg;image/png;image/webp;image/bmp;image/tiff;image/gif;video/mp4;video/quicktime;video/x-matroska;
+Keywords=photo;image;video;viewer;convert;crop;pdf;gif;

@@ -1,0 +1,21 @@
+# Uses the tools already installed in the environment (pip install -e ".[dev]")
+# so pre-commit and local `make check` never disagree about versions.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint + autofix)
+        entry: ruff check --fix
+        language: system
+        types: [python]
+      - id: black
+        name: black (format)
+        entry: black
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy (type-check)
+        entry: mypy myimages
+        language: system
+        pass_filenames: false
+        types: [python]
