@@ -14,9 +14,23 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from myimages.imaging.save_policy import (
+    ALPHA_MODES,
+    ALPHA_SAFE_SUFFIXES,
+    FORMATS_WITHOUT_ALPHA,
+    SUPPORTED_FORMATS,
+    AlphaFormatError,
+    flatten_onto_background,
+    has_transparency,
+    supports_alpha,
+)
+
 ANCHORS: frozenset[str] = frozenset(
     {"center", "top", "bottom", "left", "right", "topleft"}
 )
+
+# Suffixes whose encoders honour a ``quality`` argument when saving.
+QUALITY_SUFFIXES: frozenset[str] = frozenset({".jpg", ".jpeg", ".webp"})
 
 
 @dataclass(frozen=True)
@@ -52,11 +66,40 @@ def load_image(path: str | Path) -> Image.Image:
     return ImageOps.exif_transpose(image)
 
 
-def save_image(image: Image.Image, dest: str | Path, *, quality: int = 90) -> Path:
-    """Save an image, inferring the format from ``dest``'s suffix."""
+def save_image(
+    image: Image.Image,
+    dest: str | Path,
+    *,
+    quality: int = 90,
+    background: tuple[int, int, int] = (255, 255, 255),
+) -> Path:
+    """Save an image, inferring the format from ``dest``'s suffix.
+
+    Transparency is checked before the file is opened, because Pillow truncates
+    the destination to zero bytes and only then asks the encoder whether it can
+    write the image — so a rejected save destroys whatever was already there.
+    A transparent image bound for a format that cannot hold alpha raises
+    :class:`AlphaFormatError`; callers pick a different destination with
+    :mod:`myimages.imaging.save_policy` rather than losing the file.
+
+    An image that is merely in an alpha-capable mode without using it (an opaque
+    RGBA screenshot, say) is flattened onto ``background`` instead, since that
+    discards nothing the viewer could see.
+    """
     destination = Path(dest)
+    suffix = destination.suffix.lower()
+    if has_transparency(image) and not supports_alpha(suffix):
+        raise AlphaFormatError(
+            f"{suffix or 'that format'} cannot store transparency; "
+            f"save to one of {', '.join(sorted(ALPHA_SAFE_SUFFIXES))} instead"
+        )
+
+    target_format = SUPPORTED_FORMATS.get(suffix)
+    if target_format in FORMATS_WITHOUT_ALPHA and image.mode in ALPHA_MODES:
+        image = flatten_onto_background(image, background)
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.suffix.lower() in {".jpg", ".jpeg", ".webp"}:
+    if suffix in QUALITY_SUFFIXES:
         image.save(destination, quality=quality)
     else:
         image.save(destination)

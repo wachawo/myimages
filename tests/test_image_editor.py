@@ -297,3 +297,81 @@ def test_the_readout_stays_on_screen_when_the_tools_scroll(qtbot, make_image):
     assert not editor.toolbar_area.isAncestorOf(editor.status_label)
     assert not editor.toolbar_area.isAncestorOf(editor.size_label)
     assert editor.status_label.visibleRegion().boundingRect().width() > 0
+
+
+def test_load_reports_an_unreadable_file_and_keeps_nothing(
+    qtbot, tmp_path: Path, silence_dialogs, monkeypatch
+):
+    """A file the decoder rejects must not leave half a state behind."""
+    broken = tmp_path / "broken.png"
+    broken.write_bytes(b"not an image at all")
+    media = build_media_file(broken)
+
+    warned: list[str] = []
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.QMessageBox.warning",
+        staticmethod(lambda *a, **k: warned.append(a[1])),
+    )
+    editor = make_editor(qtbot)
+    assert editor.load(media) is False
+    assert editor.working_image is None
+    assert editor.media_file is None
+    assert warned == ["Cannot open image"]
+
+
+def test_load_returns_true_for_a_readable_file(qtbot, make_image):
+    editor = make_editor(qtbot)
+    assert editor.load(media_from(make_image)) is True
+
+
+def test_save_plan_keeps_the_format_for_an_opaque_edit(qtbot, make_image):
+    editor = make_editor(qtbot)
+    media = media_from(make_image, name="shot.jpg")
+    editor.load(media)
+    plan = editor.save_plan(copy=False)
+    assert plan is not None
+    assert plan.destination == Path(media.path)
+    assert not plan.retargeted
+
+
+def test_save_plan_diverts_a_transparent_result_to_a_sibling_png(qtbot, make_image):
+    """The editor cannot produce alpha yet; the policy it delegates to can."""
+    editor = make_editor(qtbot)
+    media = media_from(make_image, name="shot.jpg")
+    editor.load(media)
+    editor.working_image = Image.new("RGBA", (8, 8), (1, 2, 3, 0))
+
+    plan = editor.save_plan(copy=False)
+    assert plan is not None
+    assert plan.destination == Path(media.path).with_suffix(".png")
+    assert plan.retargeted
+    assert Path(media.path).exists()
+
+
+def test_save_plan_is_none_with_nothing_open(qtbot):
+    editor = make_editor(qtbot)
+    assert editor.save_plan(copy=False) is None
+
+
+def test_a_failed_save_is_reported_and_the_editor_stays_open(
+    qtbot, make_image, monkeypatch
+):
+    """A write error must reach the user, not vanish into the event loop."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+
+    def explode(*args, **kwargs):
+        raise OSError("disk is full")
+
+    warned: list[str] = []
+    monkeypatch.setattr("myimages.imaging.transform.save_image", explode)
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.QMessageBox.warning",
+        staticmethod(lambda *a, **k: warned.append(a[2])),
+    )
+    closed: list[bool] = []
+    editor.closed.connect(closed.append)
+
+    editor.save_over()
+    assert closed == []
+    assert warned == ["OSError: disk is full"]

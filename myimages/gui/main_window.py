@@ -686,7 +686,8 @@ class MainWindow(QMainWindow):
         """Enter the inline crop/rotate editor under the preview."""
         if self.current is None or self.current.kind is not MediaKind.IMAGE:
             return
-        self.editor.load(self.current)
+        if not self.editor.load(self.current):
+            return
         self.preview_area.setCurrentWidget(self.editor)
 
     def on_editor_closed(self, changed: bool) -> None:

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving an image with transparency over a JPEG destroyed the original. Pillow
+  opens the destination for writing before the encoder rejects the mode, so the
+  photograph was truncated to zero bytes and then an error was raised that never
+  reached the interface. Whether a format can hold transparency is now checked
+  before the file is opened.
+- Opening a file the decoder cannot read, and every failure while saving, are
+  now reported. Both used to raise inside a Qt slot, where the exception was
+  discarded and the button simply appeared to do nothing.
+
+### Changed
+
+- Save writes a sibling `.png` and leaves the original untouched when the source
+  format cannot store transparency (JPEG, BMP and GIF). Formats that support
+  alpha — PNG, WebP and TIFF — are still overwritten in place. Nothing is
+  flattened without being asked for, and no original is deleted.
+
 ## [0.0.1] - 2026-08-03
 
 First public release.
