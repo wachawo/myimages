@@ -57,6 +57,17 @@ CHECKER_LIGHT = "#5a5f66"
 CHECKER_DARK = "#464b52"
 CHECKER_SQUARE = 8
 
+# What may sit behind the transparent parts. The checker says "nothing is here";
+# the flat colours are for judging a fringe the checker's own edges hide, which
+# is why magenta is among them -- almost nothing in a photograph is that colour,
+# so leftover background shows up against it immediately.
+BACKDROPS: tuple[str, ...] = ("checker", "white", "black", "magenta")
+BACKDROP_FILLS: dict[str, str] = {
+    "white": "#ffffff",
+    "black": "#000000",
+    "magenta": "#ff00ff",
+}
+
 # The brush ring is stroked twice, dark under light, so it stays legible over a
 # blown-out sky and over a black jacket alike.
 RING_SHADOW_COLOUR = "#000000"
@@ -200,6 +211,7 @@ class CropCanvas(QWidget):
         self.brush_radius = 0.05
         self.hover_point: tuple[float, float] | None = None
         self.checker = checker_tile(CHECKER_LIGHT, CHECKER_DARK, CHECKER_SQUARE)
+        self.backdrop = "checker"
 
     # -- state -------------------------------------------------------------
 
@@ -237,6 +249,13 @@ class CropCanvas(QWidget):
         # The ring has to follow the cursor with no button held, which costs a
         # move event per pixel; the crop tools never needed that.
         self.setMouseTracking(mode == "paint")
+        self.update()
+
+    def set_backdrop(self, backdrop: str) -> None:
+        """Choose what shows through the transparent parts of the image."""
+        if backdrop not in BACKDROPS:
+            raise ValueError(f"unknown backdrop {backdrop!r}")
+        self.backdrop = backdrop
         self.update()
 
     def set_brush_radius(self, radius: float) -> None:
@@ -420,7 +439,7 @@ class CropCanvas(QWidget):
             int(self.pixmap.height() * scale),
         )
         if self.pixmap.hasAlphaChannel():
-            self.paint_checkerboard(painter, target)
+            self.paint_backdrop(painter, target)
         painter.drawPixmap(target, self.pixmap)
         rect = self.selection_rect()
         # The dimming overlay and handles would only confuse a cut-out, and the
@@ -432,13 +451,18 @@ class CropCanvas(QWidget):
             self.paint_brush_ring(painter, self.hover_point, scale)
         painter.end()
 
-    def paint_checkerboard(self, painter: QPainter, target: QRect) -> None:
-        """Tile the checker behind the image so transparency reads as absence.
+    def paint_backdrop(self, painter: QPainter, target: QRect) -> None:
+        """Fill behind the image so transparency reads as absence, not as black.
 
-        The brush origin is pinned to the image rather than left at the widget's
-        corner: otherwise the pattern slides underneath the picture as the window
-        is resized, which looks like the transparency itself is moving.
+        For the checker the brush origin is pinned to the image rather than left
+        at the widget's corner: otherwise the pattern slides underneath the
+        picture as the window is resized, which looks like the transparency
+        itself is moving.
         """
+        fill = BACKDROP_FILLS.get(self.backdrop)
+        if fill is not None:
+            painter.fillRect(target, QColor(fill))
+            return
         painter.setBrushOrigin(target.topLeft())
         painter.fillRect(target, QBrush(self.checker))
         painter.setBrushOrigin(0, 0)
