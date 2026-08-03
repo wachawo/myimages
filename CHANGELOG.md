@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A checkerboard behind transparent pixels in the editor canvas, so a cut-out no
+  longer looks like a very dark subject, and a brush outline that follows the
+  cursor at the size the edit will actually have. Nothing switches the canvas
+  into those modes yet.
+
 - The mask engine behind background removal: a magic wand that clears a
   connected patch of similar colour, an eraser, a restore brush that paints the
   original back, and an edge-softening pass. Edits are recorded as geometry

@@ -8,8 +8,9 @@ maps to image ((wx)/2, (wy-30)/2).
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QPixmap
+from PySide6.QtGui import QImage, QMouseEvent, QPixmap
 
 from myimages.gui import crop_canvas as cc
 from myimages.gui.crop_canvas import CropCanvas
@@ -250,3 +251,185 @@ def test_paint_event_runs_in_all_states(qtbot):
     canvas.grab()  # image, no selection
     canvas.selection = CropRect(10, 10, 60, 40)
     canvas.grab()  # selection + handles drawn
+
+
+# -- transparency and tool input -------------------------------------------
+
+
+def transparent_pixmap(width: int = 200, height: int = 120) -> QPixmap:
+    """A pixmap that reports an alpha channel, as a cut-out result would."""
+    image = QImage(width, height, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    return QPixmap.fromImage(image)
+
+
+def test_checker_tile_alternates_its_four_squares(qtbot):
+    """Four reads are the whole specification; no widget is involved."""
+    tile = cc.checker_tile("#ffffff", "#000000", 4)
+    image = tile.toImage()
+    assert tile.size().width() == 8 and tile.size().height() == 8
+    assert image.pixelColor(1, 1).name() == "#000000"
+    assert image.pixelColor(5, 5).name() == "#000000"
+    assert image.pixelColor(5, 1).name() == "#ffffff"
+    assert image.pixelColor(1, 5).name() == "#ffffff"
+
+
+def test_ring_radius_scales_with_the_image_and_never_vanishes():
+    """Sized against image width, so the ring shows the edit's true size."""
+    assert cc.ring_radius_on_screen(0.1, 200, 2.0) == 40.0
+    assert cc.ring_radius_on_screen(0.1, 200, 0.5) == 10.0
+    # A radius that would round below a pixel still has to be visible.
+    assert cc.ring_radius_on_screen(0.0001, 10, 0.1) == 1.0
+
+
+def test_set_preview_pixmap_keeps_the_selection_that_set_pixmap_clears(qtbot):
+    """The two must not converge: a live preview would drop the rectangle."""
+    canvas = make_canvas(qtbot)
+    canvas.selection = CropRect(10, 10, 40, 30)
+    canvas.set_preview_pixmap(QPixmap(200, 120))
+    assert canvas.selection_rect() == CropRect(10, 10, 40, 30)
+
+    canvas.set_pixmap(QPixmap(200, 120))
+    assert canvas.selection_rect() is None
+
+
+def test_set_preview_pixmap_stays_quiet(qtbot):
+    """It runs on every frame of a preview, so it must not emit each time."""
+    canvas = make_canvas(qtbot)
+    seen: list[object] = []
+    canvas.selection_changed.connect(seen.append)
+    canvas.set_preview_pixmap(QPixmap(200, 120))
+    assert seen == []
+
+
+def test_set_interaction_rejects_a_mode_it_does_not_have(qtbot):
+    canvas = make_canvas(qtbot)
+    with pytest.raises(ValueError):
+        canvas.set_interaction("magic")
+
+
+def test_set_interaction_abandons_a_drag_in_progress(qtbot):
+    """A half-drawn crop resumed as a brush stroke is not a survivable state."""
+    canvas = make_canvas(qtbot)
+    send(canvas, "press", *to_widget(20, 20))
+    assert canvas.drag_mode == "create"
+
+    canvas.set_interaction("paint")
+    assert canvas.drag_mode is None
+    assert not canvas.painting
+    assert canvas.hasMouseTracking()
+
+    canvas.set_interaction("crop")
+    assert not canvas.hasMouseTracking()
+
+
+def test_normalised_point_divides_by_the_image_it_came_from():
+    """Pure arithmetic, and the reason the wand lands right at any zoom."""
+    assert cc.normalised_point(50, 30, 200, 120) == (0.25, 0.25)
+    assert cc.normalised_point(0, 0, 200, 120) == (0.0, 0.0)
+    # A null pixmap has no size to divide by, and the handlers can still run.
+    assert cc.normalised_point(5, 5, 0, 0) == (0.0, 0.0)
+
+
+def test_pick_mode_reports_the_fraction_of_the_image_that_was_clicked(qtbot):
+    """Fractions, not pixels: that is the unit cutout.py's edits are stored in.
+
+    The canvas shows a downscaled preview while the file is saved at full
+    resolution, so a pixel emitted here would need dividing by the right size at
+    every call site. A fraction means the same thing at either size.
+    """
+    canvas = make_canvas(qtbot)
+    canvas.set_interaction("pick")
+    picked: list[tuple[float, float]] = []
+    canvas.point_picked.connect(lambda x, y: picked.append((x, y)))
+
+    send(canvas, "press", *to_widget(50, 40))
+    assert picked == [(0.25, 1 / 3)]
+
+
+def test_pick_mode_leaves_the_crop_machinery_alone(qtbot):
+    canvas = make_canvas(qtbot)
+    canvas.set_interaction("pick")
+    send(canvas, "press", *to_widget(20, 20))
+    send(canvas, "move", *to_widget(60, 50))
+    assert canvas.drag_mode is None
+    assert canvas.selection_rect() is None
+
+
+def test_paint_mode_opens_a_stroke_and_then_continues_it(qtbot):
+    """The flag tells the editor where one gesture ends and the next begins."""
+    canvas = make_canvas(qtbot)
+    canvas.set_interaction("paint")
+    points: list[tuple[float, float, bool]] = []
+    canvas.stroke.connect(lambda x, y, started: points.append((x, y, started)))
+
+    send(canvas, "press", *to_widget(10, 10))
+    send(canvas, "move", *to_widget(30, 20))
+    send(canvas, "move", *to_widget(50, 30))
+    send(canvas, "release", *to_widget(50, 30))
+    send(canvas, "move", *to_widget(70, 40))
+
+    assert [(round(x, 4), round(y, 4), s) for x, y, s in points] == [
+        (0.05, 0.0833, True),
+        (0.15, 0.1667, False),
+        (0.25, 0.25, False),
+    ]
+
+
+def test_paint_mode_tracks_the_cursor_without_a_button_held(qtbot):
+    """The ring has to follow the cursor before anything is committed."""
+    canvas = make_canvas(qtbot)
+    canvas.set_interaction("paint")
+    send(canvas, "move", *to_widget(30, 20))
+    assert canvas.hover_point == to_widget(30, 20)
+
+    canvas.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert canvas.hover_point is None
+
+
+def test_a_press_on_an_empty_canvas_does_nothing(qtbot):
+    canvas = CropCanvas()
+    qtbot.addWidget(canvas)
+    canvas.set_interaction("pick")
+    picked: list[tuple[float, float]] = []
+    canvas.point_picked.connect(lambda x, y: picked.append((x, y)))
+    send(canvas, "press", 10, 10)
+    assert picked == []
+
+
+def test_the_checkerboard_only_appears_under_a_transparent_image(qtbot):
+    """Without it a cut-out is indistinguishable from a very dark subject."""
+    canvas = make_canvas(qtbot)
+    opaque = canvas.grab().toImage()
+
+    canvas.set_preview_pixmap(transparent_pixmap())
+    clear = canvas.grab().toImage()
+
+    assert opaque != clear
+    assert clear.pixelColor(4, 34).name() in {cc.CHECKER_LIGHT, cc.CHECKER_DARK}
+
+
+def test_the_brush_ring_is_drawn_only_while_painting(qtbot):
+    canvas = make_canvas(qtbot)
+    canvas.set_interaction("paint")
+    canvas.set_brush_radius(0.2)
+    without_ring = canvas.grab().toImage()
+
+    send(canvas, "move", *to_widget(100, 60))
+    with_ring = canvas.grab().toImage()
+    assert without_ring != with_ring
+
+
+def test_the_selection_overlay_is_hidden_outside_crop_mode(qtbot):
+    """The rectangle survives the round trip; only its chrome goes away."""
+    canvas = make_canvas(qtbot)
+    canvas.selection = CropRect(20, 20, 60, 40)
+    with_overlay = canvas.grab().toImage()
+
+    canvas.set_interaction("paint")
+    without_overlay = canvas.grab().toImage()
+    assert with_overlay != without_overlay
+    assert canvas.selection_rect() == CropRect(20, 20, 60, 40)
+
+    canvas.set_interaction("crop")
+    assert canvas.grab().toImage() == with_overlay
