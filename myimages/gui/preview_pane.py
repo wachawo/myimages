@@ -108,6 +108,8 @@ class PdfPreview(QScrollArea):
         self.more_button = None
         while self.column.count():
             item = self.column.takeAt(0)
+            if item is None:
+                break  # cannot happen while count() is positive; keeps it bounded
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
