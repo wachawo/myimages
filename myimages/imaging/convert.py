@@ -17,35 +17,31 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from PIL import Image
-
+from myimages.imaging.save_policy import (
+    ALPHA_MODES,
+    FORMATS_WITH_QUALITY,
+    FORMATS_WITHOUT_ALPHA,
+    SUPPORTED_FORMATS,
+    flatten_onto_background,
+)
 from myimages.imaging.transform import load_image, to_grayscale
 
-# Extension -> Pillow format name. Both the alias suffixes (.jpeg, .tif) and the
-# canonical ones map to the same format so callers need not normalise first.
-SUPPORTED_FORMATS: dict[str, str] = {
-    ".jpg": "JPEG",
-    ".jpeg": "JPEG",
-    ".png": "PNG",
-    ".webp": "WEBP",
-    ".bmp": "BMP",
-    ".tiff": "TIFF",
-    ".tif": "TIFF",
-    ".gif": "GIF",
-}
-
-# Formats that cannot encode an alpha channel; images with transparency must be
-# flattened onto a background before they can be written to one of these.
-FORMATS_WITHOUT_ALPHA: frozenset[str] = frozenset({"JPEG", "BMP"})
-
-# Formats whose encoders honour a ``quality`` argument. Passing ``quality`` to a
-# lossless encoder such as PNG is at best ignored and at worst an error, so we
-# only forward it here.
-FORMATS_WITH_QUALITY: frozenset[str] = frozenset({"JPEG", "WEBP"})
-
-# Pixel modes that may carry transparency and therefore need flattening when the
-# target format cannot store alpha (``P`` can hold a transparent palette entry).
-ALPHA_MODES: frozenset[str] = frozenset({"RGBA", "LA", "P"})
+# The format tables and the flattening helper live in
+# :mod:`myimages.imaging.save_policy` so that module can import nothing from the
+# package: this module already imports ``transform``, which now needs the same
+# knowledge, and defining it here would close the loop. The names are re-exported
+# because they are part of this module's published surface.
+__all__ = [
+    "ALPHA_MODES",
+    "FORMATS_WITHOUT_ALPHA",
+    "FORMATS_WITH_QUALITY",
+    "SUPPORTED_FORMATS",
+    "ConversionError",
+    "convert_image",
+    "convert_many",
+    "flatten_onto_background",
+    "register_heif",
+]
 
 
 class ConversionError(ValueError):
@@ -71,21 +67,6 @@ def register_heif() -> bool:
         return False
     pillow_heif.register_heif_opener()
     return True
-
-
-def flatten_onto_background(
-    image: Image.Image, background: tuple[int, int, int]
-) -> Image.Image:
-    """Composite ``image`` over an opaque ``background`` colour.
-
-    Used before writing to alpha-less formats: pasting through the alpha channel
-    preserves the visible pixels while replacing the transparent regions with a
-    predictable colour rather than the black Pillow would otherwise produce.
-    """
-    with_alpha = image.convert("RGBA")
-    canvas = Image.new("RGB", with_alpha.size, background)
-    canvas.paste(with_alpha, mask=with_alpha.split()[-1])
-    return canvas
 
 
 def convert_image(

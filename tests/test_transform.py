@@ -137,3 +137,63 @@ def test_flipping_twice_restores_the_original() -> None:
     once = transform.flip_image(image, horizontal=True)
     twice = transform.flip_image(once, horizontal=True)
     assert twice.tobytes() == image.tobytes()
+
+
+def test_saving_transparency_to_a_jpeg_leaves_the_original_intact(
+    tmp_path: Path,
+) -> None:
+    """The regression this whole guard exists for.
+
+    Pillow opens the destination for writing before it asks the encoder whether
+    the mode can be written, so the unguarded call truncated the photograph to
+    zero bytes and only then raised. Asserting the exception alone would pass
+    against the broken code; the byte comparison is the real assertion.
+    """
+    photo = tmp_path / "photo.jpg"
+    Image.new("RGB", (40, 30), (200, 90, 40)).save(photo, quality=95)
+    before = photo.read_bytes()
+    assert before
+
+    cutout = Image.new("RGBA", (40, 30), (200, 90, 40, 0))
+    with pytest.raises(transform.AlphaFormatError):
+        transform.save_image(cutout, photo)
+
+    assert photo.read_bytes() == before
+
+
+@pytest.mark.parametrize("suffix", [".jpg", ".jpeg", ".bmp", ".gif"])
+def test_transparency_is_refused_by_every_format_that_cannot_hold_it(
+    tmp_path: Path, suffix: str
+) -> None:
+    cutout = Image.new("RGBA", (8, 8), (1, 2, 3, 0))
+    with pytest.raises(transform.AlphaFormatError):
+        transform.save_image(cutout, tmp_path / f"out{suffix}")
+
+
+@pytest.mark.parametrize("suffix", [".png", ".webp", ".tiff", ".tif"])
+def test_transparency_is_written_by_every_format_that_can_hold_it(
+    tmp_path: Path, suffix: str
+) -> None:
+    cutout = Image.new("RGBA", (8, 8), (1, 2, 3, 0))
+    written = transform.save_image(cutout, tmp_path / f"out{suffix}")
+    reopened = Image.open(written).convert("RGBA")
+    assert reopened.getchannel("A").getextrema() == (0, 0)
+
+
+def test_an_opaque_alpha_mode_is_flattened_rather_than_refused(
+    tmp_path: Path,
+) -> None:
+    """RGBA with nothing see-through can still not be written as JPEG.
+
+    Pillow rejects the mode regardless of the pixels, so the guard would be a
+    dead end here. Nothing visible is lost by flattening, so the save proceeds.
+    """
+    opaque = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
+    written = transform.save_image(opaque, tmp_path / "out.jpg")
+    assert Image.open(written).convert("RGB").getpixel((0, 0)) == (10, 20, 30)
+
+
+def test_flattening_uses_the_requested_background(tmp_path: Path) -> None:
+    opaque = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
+    written = transform.save_image(opaque, tmp_path / "out.bmp", background=(0, 0, 255))
+    assert Image.open(written).convert("RGB").getpixel((0, 0)) == (10, 20, 30)

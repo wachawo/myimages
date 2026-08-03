@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QToolButton,
@@ -30,7 +32,8 @@ from PySide6.QtWidgets import (
 from myimages import icons
 from myimages.core.media import MediaFile
 from myimages.gui.crop_canvas import CropCanvas
-from myimages.imaging import transform, watermark
+from myimages.gui.task_runner import Runner, threaded_runner
+from myimages.imaging import save_policy, transform, watermark
 from myimages.imaging.transform import CropRect
 
 ASPECTS: tuple[tuple[str, tuple[int, int] | None], ...] = (
@@ -59,12 +62,7 @@ def pixmap_from_pil(image: Image.Image) -> QPixmap:
 
 def copy_destination(path: Path) -> Path:
     """A non-clashing ``name_copy.ext`` path next to ``path``."""
-    candidate = path.with_name(f"{path.stem}_copy{path.suffix}")
-    counter = 2
-    while candidate.exists():
-        candidate = path.with_name(f"{path.stem}_copy{counter}{path.suffix}")
-        counter += 1
-    return candidate
+    return save_policy.copy_plan(path, transparent=False).destination
 
 
 class ImageEditor(QWidget):
@@ -72,11 +70,18 @@ class ImageEditor(QWidget):
 
     closed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        runner: Runner = threaded_runner,
+    ) -> None:
         super().__init__(parent)
         self.media_file: MediaFile | None = None
         self.working_image: Image.Image | None = None
         self.themed_buttons: list[tuple[QToolButton, Callable[[], QIcon]]] = []
+        self.runner = runner
+        self.busy = False
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -220,10 +225,32 @@ class ImageEditor(QWidget):
 
     # -- editing -----------------------------------------------------------
 
-    def load(self, media_file: MediaFile) -> None:
-        """Open ``media_file`` for editing, resetting any previous state."""
+    def report_failure(self, title: str, error: Exception) -> None:
+        """Show a file operation's failure instead of letting it escape a slot.
+
+        An exception raised inside a Qt slot unwinds into the event loop, where
+        it is printed to the console and otherwise discarded: the button appears
+        to do nothing at all. Every path in and out of the filesystem therefore
+        ends here.
+        """
+        QMessageBox.warning(self, title, f"{type(error).__name__}: {error}")
+
+    def load(self, media_file: MediaFile) -> bool:
+        """Open ``media_file`` for editing, resetting any previous state.
+
+        Returns whether the file could be read. A missing codec (``.heic``
+        without the optional extra) or an unreadable file is reported and the
+        editor is left holding nothing rather than half a state.
+        """
+        try:
+            opened = transform.load_image(media_file.path).convert("RGB")
+        except (OSError, ValueError) as error:
+            self.media_file = None
+            self.working_image = None
+            self.report_failure("Cannot open image", error)
+            return False
         self.media_file = media_file
-        self.working_image = transform.load_image(media_file.path).convert("RGB")
+        self.working_image = opened
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
         self.aspect_group.buttons()[0].setChecked(True)
         self.canvas.set_aspect(None)
@@ -231,6 +258,7 @@ class ImageEditor(QWidget):
         # Reopening the editor should start at the left of the tool row, not
         # wherever it was scrolled to when it was last closed.
         self.toolbar_area.horizontalScrollBar().setValue(0)
+        return True
 
     def on_selection_changed(self, rect: CropRect | None) -> None:
         if rect is not None:
@@ -258,18 +286,71 @@ class ImageEditor(QWidget):
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
         self.canvas.set_aspect(self.canvas.aspect)
 
+    def set_busy(self, busy: bool) -> None:
+        """Lock the controls that would race a running operation.
+
+        The tools all read and replace ``working_image``, and Save writes it to
+        disk, so a second press while the first is still on a worker thread
+        either loses an edit or writes a half-finished one. Rotate and flip stay
+        live: they are instant and were never a race.
+        """
+        self.busy = busy
+        for button in (
+            self.watermark_button,
+            self.crop_button,
+            self.save_button,
+            self.copy_button,
+        ):
+            button.setEnabled(not busy)
+        if not busy:
+            # Crop is only meaningful with a selection; hand that decision back.
+            self.on_selection_changed(self.canvas.selection_rect())
+
+    def run_operation(
+        self,
+        function: Callable[[], object],
+        title: str,
+        on_finished: Callable[[object], None],
+    ) -> None:
+        """Run slow work off the UI thread, locking the editor while it runs."""
+        progress = QProgressDialog(title, "", 0, 0, self)
+        progress.setCancelButton(None)
+        progress.setWindowTitle("Please wait")
+        progress.show()
+        self.set_busy(True)
+
+        def finished(result: object) -> None:
+            progress.close()
+            self.set_busy(False)
+            on_finished(result)
+
+        def failed(message: str) -> None:
+            progress.close()
+            self.set_busy(False)
+            QMessageBox.warning(self, title, message)
+
+        self.runner(function, finished, failed)
+
     def remove_watermark(self) -> None:
         """Paint out a watermark, in the selection when one is drawn.
 
         Nothing is written to disk here: the result replaces the working image so
         it can be inspected (and undone with Cancel) before Save or Copy.
         """
-        if self.working_image is None:
+        image = self.working_image
+        if image is None or self.busy:
             return
         rect = self.canvas.selection_rect()
         box = None if rect is None else (rect.left, rect.top, rect.right, rect.bottom)
-        result = watermark.remove_watermark(self.working_image, box)
-        if not result.found:
+        self.run_operation(
+            lambda: watermark.remove_watermark(image, box),
+            "Removing watermark…",
+            self.on_watermark_removed,
+        )
+
+    def on_watermark_removed(self, result: object) -> None:
+        """Adopt the inpainted image, or say that nothing was found there."""
+        if not isinstance(result, watermark.WatermarkResult) or not result.found:
             self.status_label.setText("No watermark found there")
             return
         self.working_image = result.image
@@ -283,17 +364,47 @@ class ImageEditor(QWidget):
         self.working_image = transform.crop_image(self.working_image, rect)
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
 
-    def save_over(self) -> None:
-        if self.media_file is not None and self.working_image is not None:
-            transform.save_image(self.working_image, self.media_file.path, quality=95)
+    def write_image(self, image: Image.Image, destination: Path) -> bool:
+        """Write ``image`` to disk, reporting a failure rather than raising."""
+        try:
+            transform.save_image(image, destination, quality=95)
+        except (OSError, ValueError) as error:
+            self.report_failure("Cannot save image", error)
+            return False
+        return True
+
+    def save_plan(self, copy: bool) -> save_policy.SavePlan | None:
+        """Where the working image would be written, or None with nothing open.
+
+        Transparency decides the destination: a cut-out cannot be written back
+        over a JPEG, so it goes to a sibling PNG and the original is left where
+        it is. An opaque result always keeps the source's format.
+        """
+        if self.media_file is None or self.working_image is None:
+            return None
+        transparent = save_policy.has_transparency(self.working_image)
+        path = Path(self.media_file.path)
+        if copy:
+            return save_policy.copy_plan(path, transparent)
+        return save_policy.overwrite_plan(path, transparent)
+
+    def commit(self, copy: bool) -> None:
+        """Write the result and close, staying open if the write failed."""
+        image = self.working_image
+        plan = self.save_plan(copy)
+        if (
+            image is not None
+            and plan is not None
+            and not self.write_image(image, plan.destination)
+        ):
+            return
         self.closed.emit(True)
 
+    def save_over(self) -> None:
+        self.commit(copy=False)
+
     def save_copy(self) -> None:
-        if self.media_file is not None and self.working_image is not None:
-            transform.save_image(
-                self.working_image, copy_destination(self.media_file.path), quality=95
-            )
-        self.closed.emit(True)
+        self.commit(copy=True)
 
     def cancel(self) -> None:
         self.closed.emit(False)

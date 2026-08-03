@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
         self.preview.navigate.connect(self.navigate)
         self.preview.favorite_toggled.connect(self.toggle_favorite_current)
         self.preview.context_menu_requested.connect(self.show_preview_menu)
-        self.editor = ImageEditor()
+        self.editor = ImageEditor(runner=self.task_runner)
         self.editor.closed.connect(self.on_editor_closed)
         self.preview_area = QStackedWidget()
         self.preview_area.addWidget(self.preview)
@@ -686,7 +686,8 @@ class MainWindow(QMainWindow):
         """Enter the inline crop/rotate editor under the preview."""
         if self.current is None or self.current.kind is not MediaKind.IMAGE:
             return
-        self.editor.load(self.current)
+        if not self.editor.load(self.current):
+            return
         self.preview_area.setCurrentWidget(self.editor)
 
     def on_editor_closed(self, changed: bool) -> None:
