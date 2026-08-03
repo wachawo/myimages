@@ -36,8 +36,17 @@ def readable_entries(root: Path, recursive: bool) -> Iterator[Path]:
     share) must end the walk quietly rather than take the whole app down with a
     ``PermissionError``. Unreadable *sub*-directories are already skipped by
     ``rglob`` itself, so only the top-level listing needs this guard.
+
+    The guard is in two places because the two interpreters we support disagree
+    about *when* the listing happens. Up to 3.12 ``iterdir`` is lazy and the
+    failure arrives on the first step; from 3.13 it reads the directory as it is
+    called, so the failure arrives before the loop is ever entered. Catching in
+    only one place passes on one set of versions and raises on the other.
     """
-    walker = root.rglob("*") if recursive else root.iterdir()
+    try:
+        walker = root.rglob("*") if recursive else root.iterdir()
+    except OSError:
+        return
     while True:
         try:
             yield next(walker)
