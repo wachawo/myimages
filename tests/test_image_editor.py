@@ -12,11 +12,15 @@ from myimages.gui.image_editor import (
     copy_destination,
     pixmap_from_pil,
 )
+from myimages.gui.task_runner import synchronous_runner
 from myimages.imaging.transform import CropRect
 
 
 def make_editor(qtbot):
-    editor = ImageEditor()
+    # The synchronous runner is not a convenience here: every test that reads
+    # working_image or status_label straight after an operation would otherwise
+    # be racing a worker thread.
+    editor = ImageEditor(runner=synchronous_runner)
     qtbot.addWidget(editor)
     return editor
 
@@ -375,3 +379,66 @@ def test_a_failed_save_is_reported_and_the_editor_stays_open(
     editor.save_over()
     assert closed == []
     assert warned == ["OSError: disk is full"]
+
+
+def watermarked(make_image, name="mark.png"):
+    """An image carrying a bright badge in its bottom-right corner."""
+    path = make_image(name, (120, 90), (40, 60, 90))
+    image = Image.open(path)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([92, 70, 116, 84], fill=(250, 250, 250))
+    image.save(path)
+    return build_media_file(path)
+
+
+def test_the_editor_locks_its_controls_while_work_is_in_flight(qtbot, make_image):
+    """A second press mid-operation would race the first on working_image."""
+    editor = make_editor(qtbot)
+    editor.load(watermarked(make_image))
+    editor.canvas.selection_changed.emit(CropRect(0, 0, 20, 20))
+
+    seen: list[bool] = []
+
+    def capture_then_run(function, on_finished, on_failed=None):
+        seen.append(editor.save_button.isEnabled())
+        seen.append(editor.watermark_button.isEnabled())
+        synchronous_runner(function, on_finished, on_failed)
+
+    editor.runner = capture_then_run
+    editor.remove_watermark()
+
+    assert seen == [False, False]
+    assert not editor.busy
+    assert editor.save_button.isEnabled()
+    assert editor.watermark_button.isEnabled()
+
+
+def test_the_editor_unlocks_after_a_failed_operation(qtbot, make_image, monkeypatch):
+    """The failure path has to release the controls too, or the editor is dead."""
+    editor = make_editor(qtbot)
+    editor.load(watermarked(make_image))
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.QMessageBox.warning",
+        staticmethod(lambda *a, **k: None),
+    )
+    monkeypatch.setattr(
+        "myimages.imaging.watermark.remove_watermark",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("inpaint exploded")),
+    )
+    editor.remove_watermark()
+
+    assert not editor.busy
+    assert editor.save_button.isEnabled()
+    assert editor.watermark_button.isEnabled()
+
+
+def test_remove_watermark_ignores_a_second_press_while_busy(qtbot, make_image):
+    """Re-entrancy guard: the in-flight operation owns working_image."""
+    editor = make_editor(qtbot)
+    editor.load(watermarked(make_image))
+    editor.busy = True
+    calls: list[object] = []
+    editor.runner = lambda *a, **k: calls.append(a)
+
+    editor.remove_watermark()
+    assert calls == []

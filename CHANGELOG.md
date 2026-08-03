@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Removing a watermark no longer freezes the window. It runs off the interface
+  thread behind a progress dialog, and the tools that share the working image —
+  Crop, Remove Watermark, Save and Save as Copy — are disabled until it
+  finishes, so a second press cannot race the first.
 - Save writes a sibling `.png` and leaves the original untouched when the source
   format cannot store transparency (JPEG, BMP and GIF). Formats that support
   alpha — PNG, WebP and TIFF — are still overwritten in place. Nothing is
