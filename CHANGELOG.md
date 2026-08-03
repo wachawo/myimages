@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The name in the top bar is now a wordmark: **MY** in a light blue against
+  **IMAGES** in the interface's own text colour, set larger and heavier. Both
+  colours come from the active theme, so it stays legible on the light one.
+
 ### Added
 
 - A checkerboard behind transparent pixels in the editor canvas, so a cut-out no

@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from myimages import __version__, icons
+from myimages import __version__, icons, theme
 from myimages.config import Settings, save_settings
 from myimages.core import deletion, scanner
 from myimages.core.media import MediaFile, MediaKind
@@ -253,9 +253,10 @@ class MainWindow(QMainWindow):
         brand_icon = QLabel()
         brand_icon.setPixmap(app_icon().pixmap(24, 24))
         layout.addWidget(brand_icon)
-        brand = QLabel("myImages")
-        brand.setObjectName("brand")
-        layout.addWidget(brand)
+        self.brand = QLabel()
+        self.brand.setObjectName("brand")
+        self.apply_brand_colours()
+        layout.addWidget(self.brand)
 
         self.folder_input = QLineEdit(self.settings.last_folder)
         self.folder_input.setPlaceholderText("Folder with photos and videos…")
@@ -927,6 +928,20 @@ class MainWindow(QMainWindow):
 
         apply_theme_to_app(self.settings.theme)
         self.refresh_icons()
+        self.apply_brand_colours()
+
+    def apply_brand_colours(self) -> None:
+        """Paint the wordmark: MY in the scheme's tint, IMAGES in its text colour.
+
+        Rich text rather than two labels so the halves sit on one baseline with
+        no gap a layout could stretch, and both colours are taken from the
+        scheme: a literal white would disappear against the light theme.
+        """
+        scheme = theme.scheme_for(self.settings.theme)
+        self.brand.setText(
+            f'<span style="color:{scheme.brand_tint}">MY</span>'
+            f'<span style="color:{scheme.text}">IMAGES</span>'
+        )
 
     # -- persistence -------------------------------------------------------
 

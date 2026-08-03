@@ -34,6 +34,7 @@ class ColourScheme:
     muted: str
     accent: str
     accent_bright: str
+    brand_tint: str
 
 
 DARK = ColourScheme(
@@ -45,6 +46,7 @@ DARK = ColourScheme(
     muted="#9aa0a8",
     accent="#4f8cff",
     accent_bright="#6ea3ff",
+    brand_tint="#9ec5ff",
 )
 
 LIGHT = ColourScheme(
@@ -56,6 +58,7 @@ LIGHT = ColourScheme(
     muted="#5d636d",
     accent="#2f6fe4",
     accent_bright="#4f8cff",
+    brand_tint="#3d74d6",
 )
 
 SCHEMES: dict[str, ColourScheme] = {"dark": DARK, "light": LIGHT}
@@ -91,7 +94,10 @@ QMainWindow, QDialog {{ background: {scheme.background}; }}
 QWidget {{ color: {scheme.text}; font-size: 14px; }}
 
 #topbar {{ background: {scheme.panel}; border-bottom: 1px solid {scheme.border}; }}
-#brand {{ font-size: 18px; font-weight: 700; }}
+/* The wordmark is two spans in one label, so MY and IMAGES sit on the same
+   baseline with no gap a layout could stretch. Both colours come from the
+   scheme: a flat white would vanish on the light theme. */
+#brand {{ font-size: 22px; font-weight: 800; letter-spacing: 1px; }}
 #sidebar {{ background: {scheme.panel}; border-left: 1px solid {scheme.border}; }}
 QLabel#sectionTitle {{ color: {scheme.muted}; font-size: 12px; font-weight: 600; }}
 QLabel#muted {{ color: {scheme.muted}; font-size: 12px; }}
