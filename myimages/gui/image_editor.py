@@ -521,20 +521,26 @@ class ImageEditor(QWidget):
         self.report_coverage()
 
     def on_stroke(self, x: float, y: float, started: bool) -> None:
-        """A brush point; ``started`` opens a new stroke rather than extending."""
-        if self.active_tool not in {"erase", "restore"}:
+        """A brush point; ``started`` opens a new stroke rather than extending.
+
+        The gap since the previous point is filled in rather than dabbed once:
+        pointer events on a quick drag arrive dozens of pixels apart, which lays
+        a row of separate circles instead of a stroke.
+        """
+        if self.active_tool not in {"erase", "restore"} or self.preview_source is None:
             return
+        restore = self.active_tool == "restore"
         dab = (x, y, BRUSH_STEPS[self.brush_index])
-        if started:
+        if started or not self.dabs:
             self.dabs = [dab]
-            self.edits.append(
-                cutout.BrushStroke(dabs=(dab,), restore=self.active_tool == "restore")
-            )
         else:
-            self.dabs.append(dab)
-            self.edits[-1] = cutout.BrushStroke(
-                dabs=tuple(self.dabs), restore=self.active_tool == "restore"
-            )
+            aspect = self.preview_source.height / self.preview_source.width
+            self.dabs.extend(cutout.bridge_dabs(self.dabs[-1], dab, aspect))
+        stroke = cutout.BrushStroke(dabs=tuple(self.dabs), restore=restore)
+        if started or len(self.dabs) == 1:
+            self.edits.append(stroke)
+        else:
+            self.edits[-1] = stroke
         self.refresh_cutout()
 
     def report_coverage(self) -> None:

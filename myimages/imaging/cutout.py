@@ -23,6 +23,7 @@ the diagonal makes a circle drawn on a wide crop come back the wrong size.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -35,6 +36,15 @@ SECOND_SENTINEL = (0, 255, 0)
 
 # A brush dab is never allowed to vanish entirely on a small preview.
 MINIMUM_RADIUS = 1.0
+
+# How far apart consecutive dabs may sit, as a share of the brush radius. Half a
+# radius makes the circles overlap, which is what turns a row of dots into a
+# stroke.
+DAB_SPACING = 0.5
+
+# A floor on that spacing, as a fraction of the image width, so the smallest
+# brush cannot turn one long drag into an unbounded list of dabs.
+MINIMUM_DAB_STEP = 0.002
 
 # Fully opaque and fully clear, as alpha values.
 OPAQUE = 255
@@ -130,6 +140,40 @@ def paint_stroke(mask: Image.Image, stroke: BrushStroke) -> None:
             ],
             fill=value,
         )
+
+
+def bridge_dabs(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    aspect: float,
+) -> tuple[tuple[float, float, float], ...]:
+    """The dabs to lay between two pointer positions, ``start`` excluded.
+
+    Pointer events arrive when the system feels like it, which on a quick drag is
+    every several dozen pixels; one dab per event draws a dotted line rather than
+    a stroke. ``start`` is left out because the caller has already laid it, so
+    consecutive calls chain without doubling up on the joins.
+
+    ``aspect`` is the image's height over its width. Without it the spacing would
+    be measured in a space where a vertical step counts the same as a horizontal
+    one, and a stroke down a wide crop would come out dotted while the same
+    stroke across it was solid.
+    """
+    step = max(end[2] * DAB_SPACING, MINIMUM_DAB_STEP)
+    span_x = end[0] - start[0]
+    span_y = end[1] - start[1]
+    distance = math.hypot(span_x, span_y * aspect)
+    if distance <= step:
+        return (end,)
+    count = math.ceil(distance / step)
+    return tuple(
+        (
+            start[0] + span_x * index / count,
+            start[1] + span_y * index / count,
+            end[2],
+        )
+        for index in range(1, count + 1)
+    )
 
 
 def build_mask(

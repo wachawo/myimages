@@ -520,7 +520,9 @@ def test_a_drag_becomes_one_stroke_holding_every_dab(qtbot, make_image):
     editor.on_stroke(0.4, 0.5, False)
 
     assert len(editor.edits) == 1
-    assert len(editor.edits[0].dabs) == 3
+    # More than the three events: the gaps between them are filled in, or the
+    # stroke would be three separate circles.
+    assert len(editor.edits[0].dabs) >= 3
 
     editor.on_stroke(0.8, 0.5, True)
     assert len(editor.edits) == 2
@@ -691,3 +693,18 @@ def test_a_stroke_is_ignored_when_no_brush_is_armed(qtbot, make_image):
     editor.arm_tool("wand")
     editor.on_stroke(0.5, 0.5, True)
     assert editor.edits == []
+
+
+def test_a_quick_drag_is_filled_in_rather_than_left_dotted(qtbot, make_image):
+    """Three sparse pointer events must become a stroke, not three circles."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(400, 300)))
+    editor.set_mode("cutout")
+    editor.arm_tool("erase")
+
+    editor.on_stroke(0.1, 0.5, True)
+    editor.on_stroke(0.5, 0.5, False)
+    editor.on_stroke(0.9, 0.5, False)
+
+    assert len(editor.edits) == 1
+    assert len(editor.edits[0].dabs) > 3
