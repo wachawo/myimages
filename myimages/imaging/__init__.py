@@ -1,1 +1,1 @@
-"""Image editing: format conversion, geometric transforms and PDF export."""
+"""Image editing: conversion, transforms, cut-outs and PDF export."""
