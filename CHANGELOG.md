@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The mask engine behind background removal: a magic wand that clears a
+  connected patch of similar colour, an eraser, a restore brush that paints the
+  original back, and an edge-softening pass. Edits are recorded as geometry
+  rather than pixels, so undo steps back one wand pick or one brush stroke and
+  the saved file is re-rendered at full resolution from the same list the
+  preview used. Nothing calls it yet.
+
 ### Fixed
 
 - Saving an image with transparency over a JPEG destroyed the original. Pillow
