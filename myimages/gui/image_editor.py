@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QToolButton,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
 from myimages import icons
 from myimages.core.media import MediaFile
 from myimages.gui.crop_canvas import CropCanvas
+from myimages.gui.task_runner import Runner, threaded_runner
 from myimages.imaging import save_policy, transform, watermark
 from myimages.imaging.transform import CropRect
 
@@ -68,11 +70,18 @@ class ImageEditor(QWidget):
 
     closed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        runner: Runner = threaded_runner,
+    ) -> None:
         super().__init__(parent)
         self.media_file: MediaFile | None = None
         self.working_image: Image.Image | None = None
         self.themed_buttons: list[tuple[QToolButton, Callable[[], QIcon]]] = []
+        self.runner = runner
+        self.busy = False
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -277,18 +286,71 @@ class ImageEditor(QWidget):
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
         self.canvas.set_aspect(self.canvas.aspect)
 
+    def set_busy(self, busy: bool) -> None:
+        """Lock the controls that would race a running operation.
+
+        The tools all read and replace ``working_image``, and Save writes it to
+        disk, so a second press while the first is still on a worker thread
+        either loses an edit or writes a half-finished one. Rotate and flip stay
+        live: they are instant and were never a race.
+        """
+        self.busy = busy
+        for button in (
+            self.watermark_button,
+            self.crop_button,
+            self.save_button,
+            self.copy_button,
+        ):
+            button.setEnabled(not busy)
+        if not busy:
+            # Crop is only meaningful with a selection; hand that decision back.
+            self.on_selection_changed(self.canvas.selection_rect())
+
+    def run_operation(
+        self,
+        function: Callable[[], object],
+        title: str,
+        on_finished: Callable[[object], None],
+    ) -> None:
+        """Run slow work off the UI thread, locking the editor while it runs."""
+        progress = QProgressDialog(title, "", 0, 0, self)
+        progress.setCancelButton(None)
+        progress.setWindowTitle("Please wait")
+        progress.show()
+        self.set_busy(True)
+
+        def finished(result: object) -> None:
+            progress.close()
+            self.set_busy(False)
+            on_finished(result)
+
+        def failed(message: str) -> None:
+            progress.close()
+            self.set_busy(False)
+            QMessageBox.warning(self, title, message)
+
+        self.runner(function, finished, failed)
+
     def remove_watermark(self) -> None:
         """Paint out a watermark, in the selection when one is drawn.
 
         Nothing is written to disk here: the result replaces the working image so
         it can be inspected (and undone with Cancel) before Save or Copy.
         """
-        if self.working_image is None:
+        image = self.working_image
+        if image is None or self.busy:
             return
         rect = self.canvas.selection_rect()
         box = None if rect is None else (rect.left, rect.top, rect.right, rect.bottom)
-        result = watermark.remove_watermark(self.working_image, box)
-        if not result.found:
+        self.run_operation(
+            lambda: watermark.remove_watermark(image, box),
+            "Removing watermark…",
+            self.on_watermark_removed,
+        )
+
+    def on_watermark_removed(self, result: object) -> None:
+        """Adopt the inpainted image, or say that nothing was found there."""
+        if not isinstance(result, watermark.WatermarkResult) or not result.found:
             self.status_label.setText("No watermark found there")
             return
         self.working_image = result.image
