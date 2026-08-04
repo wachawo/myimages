@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A queued Intel macOS runner held the whole release behind it. `macos-13` is
+  being retired by GitHub; on 0.0.3 it never got a runner at all, and because a
+  job that never starts has not failed, marking it `continue-on-error` did
+  nothing — the Linux, Windows and Apple Silicon downloads sat built and
+  unattached waiting for it. The Intel build is now a job of its own that
+  nothing waits for, so it can only ever add a download, never withhold one.
+
+
 ## [0.0.3] - 2026-08-04
 
 ### Added
