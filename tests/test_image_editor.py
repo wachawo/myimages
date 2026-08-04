@@ -16,7 +16,7 @@ from myimages.gui.image_editor import (
     pixmap_from_pil,
 )
 from myimages.gui.task_runner import synchronous_runner
-from myimages.imaging import cutout, segment
+from myimages.imaging import cutout, save_policy, segment
 from myimages.imaging.transform import CropRect
 
 
@@ -1161,7 +1161,7 @@ def test_the_resize_dialog_says_when_it_would_invent_pixels(qtbot):
     """Enlarging cannot add detail; saying so once beats finding out in print."""
     dialog = ie.ResizeDialog(1000, 500)
     qtbot.addWidget(dialog)
-    assert "From 1000 × 500" in dialog.note.text()
+    assert "Original 1000 × 500 px" in dialog.note.text()
 
     dialog.width_spin.setValue(3000)
     assert "cannot add detail" in dialog.note.text()
@@ -1250,3 +1250,123 @@ def test_an_empty_shape_box_is_left_alone(qtbot, make_image):
     editor.aspect_field.setText("   ")
     editor.on_aspect_typed()
     assert editor.canvas.aspect == (3, 2)
+
+
+def test_the_resize_dialog_opens_on_the_pictures_own_resolution(qtbot):
+    """The user's problem is that the file says 127 dpi. It has to say so."""
+    dialog = ie.ResizeDialog(1095, 1429, dpi=127.0)
+    qtbot.addWidget(dialog)
+    assert dialog.chosen_dpi() == 127
+    assert abs(dialog.print_width_spin.value() - 1095 / 127) < 0.001
+    assert abs(dialog.print_height_spin.value() - 1429 / 127) < 0.001
+    assert "127 dpi" in dialog.note.text()
+
+
+def test_the_resize_dialog_falls_back_to_300_dpi(qtbot):
+    """A picture that claims no resolution is not a picture at 1 dpi."""
+    dialog = ie.ResizeDialog(600, 400)
+    qtbot.addWidget(dialog)
+    assert dialog.chosen_dpi() == ie.DEFAULT_DPI
+    assert abs(dialog.print_width_spin.value() - 2.0) < 0.001
+
+
+def test_a_print_size_at_a_resolution_gives_the_pixels_it_needs(qtbot):
+    """The job this exists for: a KDP cover is 8.5 × 11 in plus a 0.125 bleed,
+    at 300 dpi, which is 2588 × 3375 px. Nobody should have to multiply that
+    out, and a picture that arrives at 127 dpi has to be told what it costs."""
+    dialog = ie.ResizeDialog(1095, 1429, dpi=127.0)
+    qtbot.addWidget(dialog)
+    dialog.keep_ratio.setChecked(False)
+    dialog.print_width_spin.setValue(8.625)
+    dialog.print_height_spin.setValue(11.25)
+    dialog.dpi_spin.setValue(300)
+    assert dialog.chosen_size() == (2588, 3375)
+    assert dialog.chosen_dpi() == 300
+
+
+def test_a_typed_print_size_is_not_rounded_away_behind_the_user(qtbot):
+    """8.625 in at 127 dpi is 1095 px, and 1095 px back at 127 dpi is 8.622 in.
+    Writing that back into the field the user typed loses the sixteenth of an
+    inch of bleed, and the resolution change afterwards then asks for it."""
+    dialog = ie.ResizeDialog(1095, 1429, dpi=127.0)
+    qtbot.addWidget(dialog)
+    dialog.keep_ratio.setChecked(False)
+    dialog.print_width_spin.setValue(8.625)
+    dialog.print_height_spin.setValue(11.25)
+    assert dialog.print_width_spin.value() == 8.625
+    assert dialog.print_height_spin.value() == 11.25
+
+
+def test_raising_the_resolution_holds_the_print_size(qtbot):
+    """The page stays the size the printer asked for; the pixels follow."""
+    dialog = ie.ResizeDialog(600, 400, dpi=100.0)
+    qtbot.addWidget(dialog)
+    assert dialog.print_width_spin.value() == 6.0
+
+    dialog.dpi_spin.setValue(300)
+    assert dialog.print_width_spin.value() == 6.0
+    assert dialog.chosen_size() == (1800, 1200)
+
+
+def test_a_pixel_size_shows_the_print_size_it_comes_to(qtbot):
+    """The two halves are one sum, so the print fields follow the pixels too."""
+    dialog = ie.ResizeDialog(600, 400, dpi=100.0)
+    qtbot.addWidget(dialog)
+    dialog.width_spin.setValue(1200)
+    assert dialog.print_width_spin.value() == 12.0
+    assert dialog.print_height_spin.value() == 8.0
+
+
+def test_the_note_reports_the_originals_dpi_at_the_chosen_print_size(qtbot):
+    """Not the dpi it claims — the dpi it actually comes to across the page the
+    user is asking for, which is the number the print shop is objecting to."""
+    dialog = ie.ResizeDialog(1200, 800, dpi=300.0)
+    qtbot.addWidget(dialog)
+    dialog.keep_ratio.setChecked(False)
+    dialog.print_width_spin.setValue(12.0)
+    assert "100 dpi" in dialog.note.text()
+
+
+def test_a_resize_records_the_resolution_it_was_given(qtbot, make_image, monkeypatch):
+    """scale_image drops the source's dpi on purpose. Without putting the
+    chosen one back, a cover resized to 300 dpi still says 127 and has been
+    resized for nothing as far as the press is concerned."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(200, 150)))
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.exec",
+        lambda self: ie.QDialog.DialogCode.Accepted,
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.chosen_size", lambda self: (400, 300)
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.chosen_dpi", lambda self: 300
+    )
+    editor.open_resize()
+
+    assert editor.working_image is not None
+    assert save_policy.image_dpi(editor.working_image) == 300
+    assert "300 dpi" in editor.status_label.text()
+
+
+def test_a_resolution_change_alone_is_still_a_change(qtbot, make_image, monkeypatch):
+    """Same pixels at a new resolution is a different print size, so the early
+    return that skips a no-op resize must not swallow it."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(200, 150)))
+    before = editor.working_image
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.exec",
+        lambda self: ie.QDialog.DialogCode.Accepted,
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.chosen_size", lambda self: (200, 150)
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.chosen_dpi", lambda self: 600
+    )
+    editor.open_resize()
+
+    assert editor.working_image is not before
+    assert save_policy.image_dpi(editor.working_image) == 600

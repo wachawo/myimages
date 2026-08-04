@@ -150,3 +150,41 @@ def test_flatten_replaces_transparency_with_the_chosen_colour():
     flattened = save_policy.flatten_onto_background(transparent_image(), (0, 0, 255))
     assert flattened.mode == "RGB"
     assert flattened.getpixel((0, 0)) == (0, 0, 255)
+
+
+def test_image_dpi_reads_the_horizontal_number(tmp_path):
+    """A print size is quoted against the width, and two different values in
+    one file are a scanner artefact rather than an intention."""
+    path = tmp_path / "scan.png"
+    Image.new("RGB", (100, 100), (200, 200, 200)).save(path, dpi=(150, 150))
+    assert round(save_policy.image_dpi(Image.open(path))) == 150
+
+
+def test_image_dpi_is_none_when_the_file_does_not_say(tmp_path):
+    path = tmp_path / "plain.png"
+    Image.new("RGB", (100, 100), (200, 200, 200)).save(path)
+    assert save_policy.image_dpi(Image.open(path)) is None
+
+
+def test_image_dpi_treats_zero_as_unknown():
+    """Some JPEG writers record (0, 0), which means "no idea" and must not come
+    back as a resolution of zero — every print calculation divides by it."""
+    image = Image.new("RGB", (10, 10))
+    image.info["dpi"] = (0, 0)
+    assert save_policy.image_dpi(image) is None
+
+
+def test_image_dpi_copes_with_a_tiff_rational():
+    """TIFF stores the value as an IFDRational rather than a number."""
+    from PIL.TiffImagePlugin import IFDRational
+
+    image = Image.new("RGB", (10, 10))
+    image.info["dpi"] = (IFDRational(300, 1), IFDRational(300, 1))
+    assert save_policy.image_dpi(image) == 300.0
+
+
+def test_image_dpi_copes_with_a_bare_number():
+    """A few files store one value instead of a pair."""
+    image = Image.new("RGB", (10, 10))
+    image.info["dpi"] = 72
+    assert save_policy.image_dpi(image) == 72.0

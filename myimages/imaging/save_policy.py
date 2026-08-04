@@ -123,6 +123,29 @@ def has_transparency(image: Image.Image) -> bool:
     return lowest < 255
 
 
+def image_dpi(image: Image.Image) -> float | None:
+    """The picture's horizontal resolution, or None when it does not claim one.
+
+    Only the horizontal number is returned: it is what a print size is quoted
+    against, and a file with two different values is a scanner artefact rather
+    than an intention.
+
+    Three things have to be tolerated. TIFF stores the value as an
+    ``IFDRational`` rather than a number, so it is coerced. Some JPEG writers
+    record ``(0, 0)``, which means "unknown" and must not come back as a
+    resolution of zero. And a few files store a bare number instead of a pair.
+    """
+    raw = image.info.get("dpi")
+    if raw is None:
+        return None
+    horizontal = raw[0] if isinstance(raw, tuple | list) else raw
+    try:
+        value = float(horizontal)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    return value if value > 0 else None
+
+
 def flatten_onto_background(
     image: Image.Image, background: tuple[int, int, int]
 ) -> Image.Image:

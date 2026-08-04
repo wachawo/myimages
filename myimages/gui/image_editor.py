@@ -13,12 +13,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -96,6 +97,18 @@ TOOL_INTERACTION: dict[str, str] = {
 # A ceiling on a typed size. Past this the resize is a mistake rather than an
 # intention, and Pillow would spend a long time proving it.
 MAXIMUM_EDGE = 30000
+
+# What the print half assumes when the picture does not say. 300 dpi is what
+# print work is specified at, so a dialog opening on it is usually right and is
+# never a number the user has to work out.
+DEFAULT_DPI = 300
+
+# Past this a resolution is a typo. 4000 dpi is finer than a drum scanner and
+# would turn a postcard into a picture no machine can hold.
+MAXIMUM_DPI = 4000
+
+# Least width for the resize dialog, set by its note rather than by its form.
+NOTE_WIDTH = 360
 
 # How much bigger a resize has to get before the interface points out that
 # enlarging invents pixels. Under this it is a rounding change nobody needs
@@ -968,21 +981,37 @@ class ImageEditor(QWidget):
         self.status_label.setText("")
 
     def open_resize(self) -> None:
-        """Set the picture's size in pixels, stretching or shrinking it."""
+        """Set the picture's size, in pixels or as a print size at a resolution."""
         image = self.working_image
         if image is None or self.busy:
             return
-        dialog = ResizeDialog(image.width, image.height, self)
+        dialog = ResizeDialog(
+            image.width, image.height, self, dpi=save_policy.image_dpi(image)
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         width, height = dialog.chosen_size()
-        if (width, height) == (image.width, image.height):
+        dpi = dialog.chosen_dpi()
+        # Against what the dialog opened with, not against the file. PNG records
+        # a resolution in whole pixels per metre, so a file written at 300 dpi
+        # reads back as 299.9994 and comparing to it would rescale a picture
+        # that was already right; and a file with no resolution at all opens on
+        # the default, which the user leaving alone is not a change either.
+        if (width, height) == (image.width, image.height) and dpi == round(
+            dialog.source_dpi
+        ):
             return
-        self.working_image = transform.scale_image(
+        resized = transform.scale_image(
             image, width=width, height=height, keep_aspect=False
         )
+        # scale_image drops the source's dpi on purpose -- it described a pixel
+        # count this result no longer has. The dialog's is the one that survives:
+        # a cover resized to 300 dpi that still records 127 has been resized for
+        # nothing as far as the press is concerned.
+        resized.info["dpi"] = (dpi, dpi)
+        self.working_image = resized
         self.after_geometry_change()
-        self.status_label.setText(f"Resized to {width} × {height}")
+        self.status_label.setText(f"Resized to {width} × {height} at {dpi} dpi")
 
     def after_geometry_change(self) -> None:
         """Re-show the picture after its pixel grid changed underneath.
@@ -1183,26 +1212,69 @@ class ImageEditor(QWidget):
 
 
 class ResizeDialog(QDialog):
-    """Ask for a new pixel size, offering to keep the shape."""
+    """Ask for a new pixel size, in pixels or in inches at a resolution.
 
-    def __init__(self, width: int, height: int, parent: QWidget | None = None) -> None:
+    The two halves are one sum -- ``pixels = inches x dpi`` -- so the dialog
+    holds the resolution and lets the other two follow each other. Typing a
+    print size gives the pixel count that size needs; typing a resolution
+    against a print size held still does the same. It is the same arithmetic
+    either way, but the print job states its requirement in inches and dpi, and
+    an editor that only speaks pixels makes the user do the multiplication.
+    """
+
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        parent: QWidget | None = None,
+        dpi: float | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Resize")
+        # Wide enough for the note to read as a sentence. At the width the form
+        # alone asks for, "at this print size." falls onto a third line by
+        # itself and the dialog looks like it has gone wrong.
+        self.setMinimumWidth(NOTE_WIDTH)
         self.source = (width, height)
+        # The resolution the picture already claims, so the dialog opens on the
+        # user's real problem: a cover that has to be 300 dpi opens saying 127.
+        self.source_dpi = float(dpi) if dpi else float(DEFAULT_DPI)
+        # Set while one field is driving the others, so their signals do not
+        # come back round and fight the value that started it.
+        self.updating = False
+
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.width_spin = QSpinBox()
         self.width_spin.setRange(1, MAXIMUM_EDGE)
         self.width_spin.setValue(width)
+        self.width_spin.setSuffix(" px")
         self.height_spin = QSpinBox()
         self.height_spin.setRange(1, MAXIMUM_EDGE)
         self.height_spin.setValue(height)
+        self.height_spin.setSuffix(" px")
         self.keep_ratio = QCheckBox("Keep the shape")
         self.keep_ratio.setChecked(True)
         form.addRow("Width", self.width_spin)
         form.addRow("Height", self.height_spin)
         form.addRow("", self.keep_ratio)
+
+        self.print_width_spin = QDoubleSpinBox()
+        self.print_height_spin = QDoubleSpinBox()
+        for spin in (self.print_width_spin, self.print_height_spin):
+            spin.setRange(0.01, MAXIMUM_EDGE)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.25)
+            spin.setSuffix(" in")
+        self.dpi_spin = QSpinBox()
+        self.dpi_spin.setRange(1, MAXIMUM_DPI)
+        self.dpi_spin.setValue(round(self.source_dpi))
+        self.dpi_spin.setSuffix(" dpi")
+        form.addRow("Print width", self.print_width_spin)
+        form.addRow("Print height", self.print_height_spin)
+        form.addRow("Resolution", self.dpi_spin)
         layout.addLayout(form)
+
         self.note = QLabel("")
         self.note.setObjectName("muted")
         self.note.setWordWrap(True)
@@ -1214,34 +1286,125 @@ class ResizeDialog(QDialog):
 
         self.width_spin.valueChanged.connect(self.on_width_changed)
         self.height_spin.valueChanged.connect(self.on_height_changed)
+        self.print_width_spin.valueChanged.connect(self.on_print_width_changed)
+        self.print_height_spin.valueChanged.connect(self.on_print_height_changed)
+        self.dpi_spin.valueChanged.connect(self.on_dpi_changed)
+        self.show_print_size()
         self.refresh_note()
 
     def chosen_size(self) -> tuple[int, int]:
         """The size the user settled on."""
         return self.width_spin.value(), self.height_spin.value()
 
-    def on_width_changed(self, value: int) -> None:
-        """Follow the width with the height while the shape is locked."""
+    def chosen_dpi(self) -> int:
+        """The resolution the result should record."""
+        return self.dpi_spin.value()
+
+    def show_print_size(self, keep: QDoubleSpinBox | None = None) -> None:
+        """Put the pixel size back into the print fields at the current dpi.
+
+        ``keep`` is the field the user is typing in, and it is left exactly as
+        they typed it. Writing the rounded-back value into it loses the number
+        they asked for: 8.625 in at 127 dpi is 1095 px, and 1095 px back at
+        127 dpi is 8.622 in, so raising the resolution afterwards asks for
+        8.622 in and produces 2587 px where the printer wanted 2588.
+        """
+        width, height = self.chosen_size()
+        dpi = self.dpi_spin.value()
+        self.updating = True
+        if keep is not self.print_width_spin:
+            self.print_width_spin.setValue(width / dpi)
+        if keep is not self.print_height_spin:
+            self.print_height_spin.setValue(height / dpi)
+        self.updating = False
+
+    def set_pixel_width(self, value: int) -> None:
+        """Set the pixel width, taking the height with it when locked."""
+        self.updating = True
+        self.width_spin.setValue(value)
         if self.keep_ratio.isChecked():
             source_width, source_height = self.source
-            with QSignalBlocker(self.height_spin):
-                self.height_spin.setValue(
-                    max(1, round(value * source_height / source_width))
-                )
+            self.height_spin.setValue(
+                max(1, round(self.width_spin.value() * source_height / source_width))
+            )
+        self.updating = False
+
+    def set_pixel_height(self, value: int) -> None:
+        """Set the pixel height, taking the width with it when locked."""
+        self.updating = True
+        self.height_spin.setValue(value)
+        if self.keep_ratio.isChecked():
+            source_width, source_height = self.source
+            self.width_spin.setValue(
+                max(1, round(self.height_spin.value() * source_width / source_height))
+            )
+        self.updating = False
+
+    def on_width_changed(self, value: int) -> None:
+        """Follow the width with the height while the shape is locked."""
+        if self.updating:
+            return
+        self.set_pixel_width(value)
+        self.show_print_size()
         self.refresh_note()
 
     def on_height_changed(self, value: int) -> None:
         """Follow the height with the width while the shape is locked."""
-        if self.keep_ratio.isChecked():
-            source_width, source_height = self.source
-            with QSignalBlocker(self.width_spin):
-                self.width_spin.setValue(
-                    max(1, round(value * source_width / source_height))
-                )
+        if self.updating:
+            return
+        self.set_pixel_height(value)
+        self.show_print_size()
         self.refresh_note()
 
+    def on_print_width_changed(self, value: float) -> None:
+        """A print width is a pixel count once the resolution is known."""
+        if self.updating:
+            return
+        self.set_pixel_width(max(1, round(value * self.dpi_spin.value())))
+        # Only the field the shape lock moved is rewritten. With the shape free
+        # the print height is still exactly what the user asked for, and
+        # recomputing it from the pixels rounds their number away behind them.
+        if self.keep_ratio.isChecked():
+            self.show_print_size(keep=self.print_width_spin)
+        self.refresh_note()
+
+    def on_print_height_changed(self, value: float) -> None:
+        """A print height is a pixel count once the resolution is known."""
+        if self.updating:
+            return
+        self.set_pixel_height(max(1, round(value * self.dpi_spin.value())))
+        if self.keep_ratio.isChecked():
+            self.show_print_size(keep=self.print_height_spin)
+        self.refresh_note()
+
+    def on_dpi_changed(self, value: int) -> None:
+        """Hold the print size and let the pixel count follow the resolution.
+
+        This is the whole point of the print half: the page stays the size the
+        printer asked for, and raising the number raises the pixels it needs.
+        Moving the print size instead would leave the picture unchanged and the
+        dialog doing nothing.
+        """
+        if self.updating:
+            return
+        self.updating = True
+        self.width_spin.setValue(max(1, round(self.print_width_spin.value() * value)))
+        self.height_spin.setValue(max(1, round(self.print_height_spin.value() * value)))
+        self.updating = False
+        self.refresh_note()
+
+    def effective_dpi(self) -> float:
+        """What the original's pixels come to across the chosen print width.
+
+        The number the print shop is really objecting to. It is read off the
+        width alone: the height carries the same answer whenever the shape is
+        unchanged, and when it is not, the width is the edge the user set.
+        """
+        inches = self.print_width_spin.value()
+        return self.source[0] / inches if inches > 0 else 0.0
+
     def refresh_note(self) -> None:
-        """Say what the change costs, because enlarging invents pixels.
+        """Say where the original stands, and what the change costs.
 
         A resize can only rearrange the detail already there. Growing a picture
         makes a bigger file that is no sharper, and saying so once is kinder
@@ -1249,11 +1412,14 @@ class ResizeDialog(QDialog):
         """
         width, height = self.chosen_size()
         source_width, source_height = self.source
+        lines = [
+            f"Original {source_width} × {source_height} px — "
+            f"{self.effective_dpi():.0f} dpi at this print size."
+        ]
         factor = (width * height) / (source_width * source_height)
         if factor > UPSCALE_NOTICE:
-            self.note.setText(
+            lines.append(
                 f"{factor:.1f}× the pixels of the original. Enlarging cannot add "
                 f"detail that is not there — the result will be softer."
             )
-        else:
-            self.note.setText(f"From {source_width} × {source_height}")
+        self.note.setText(" ".join(lines))

@@ -37,10 +37,17 @@ paints, so they cannot drift away from what it actually looks like.
   set in whole thumbnail columns — one to four — so the grid always fills the
   panel instead of leaving a ragged strip of empty space.
 - **Edit images inline** under the preview (double-click a thumbnail, or the
-  pencil icon): rotate, mirror horizontally or vertically, pick an aspect ratio
-  that locks the crop box, **Crop**, then **Save** (overwrite) or
+  pencil icon), in three panes: **Edit** rotates, mirrors and resizes,
+  **Crop** locks the box to a shape and applies it, **Background** cuts the
+  subject out and lifts watermarks. Then **Save** (overwrite) or
   **Save as Copy**; plus format conversion
   (JPEG/PNG/WebP/BMP/TIFF/GIF) and colour → black & white.
+- **Resize for print**, not only in pixels. Give the page size in inches and
+  the resolution the printer asked for and the pixel count follows — a KDP
+  cover at 8.625 × 11.25 in and 300 dpi is 2588 × 3375 px, and the dialog
+  says what the picture you have comes to across that page, so a file that
+  will print at 127 dpi says so before it is sent. The chosen resolution is
+  written into the file.
 - **Remove a watermark**: the badge generators stamp into a corner is detected
   and painted over with its surroundings. Draw a selection first to clean a
   mark anywhere else. The result opens in the editor, so nothing is written

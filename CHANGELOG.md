@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edit holds rotating, mirroring and a new **Resize**: set the picture's size in
   pixels, with the shape locked or free. It says when a resize would enlarge,
   because that invents pixels rather than finding detail.
+- Resize also takes a **print size in inches and a resolution**, because that is
+  how print work is specified and an editor that only speaks pixels leaves the
+  multiplication to the user. A KDP cover is 8.625 × 11.25 in at 300 dpi, which
+  is 2588 × 3375 px. The dialog opens on the resolution the picture claims and
+  says what its pixels come to across the page asked for, so a cover that will
+  print at 127 dpi says 127 before it is sent rather than after. The chosen
+  resolution is recorded in the file.
 - Crop's shapes are buttons that light when they are on, ordered widest to
   tallest so the row is one progression through the square: 16:9 to 9:16, with
   1:1 in the middle. **N:N** at the end holds no shape at all, and pressing a
@@ -60,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A manual re-run of the publish workflow from a tag built every download and
+  then attached none of them: the upload step only ran for a real release
+  event. 0.0.2 shipped with an empty release because of it and had to be
+  filled in by hand. The Intel macOS build is best-effort now as well — GitHub
+  is retiring `macos-13`, and a build nobody can make any more must not paint
+  a finished release red.
 - Switching away from the cut-out tools silently discarded the cut-out. The
   edits stayed in the list while the editor ignored them, so Save rewrote the
   original with the untouched picture — the work vanished and a JPEG was

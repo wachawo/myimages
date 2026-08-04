@@ -1792,3 +1792,97 @@ def test_the_wordmark_follows_a_theme_change(qtbot, gui_settings):
     light = theme.scheme_for("light")
     assert light.brand_tint in win.brand.text()
     assert light.text in win.brand.text()
+
+
+def make_folder(tmp_path, name, count) -> Path:
+    """A folder of ``count`` small distinct pictures, named p0..pN."""
+    folder = tmp_path / name
+    folder.mkdir()
+    for index in range(count):
+        Image.new("RGB", (32, 32), (10 * index, 40, 90)).save(folder / f"p{index}.png")
+    return folder
+
+
+def tick_watch(win) -> None:
+    """Run one folder-watch pass inline instead of waiting for the timer."""
+    win.monitor.runner = synchronous_runner
+    win.monitor.check_now()
+
+
+def test_a_file_arriving_in_the_folder_keeps_the_selection(
+    qtbot, gui_settings, tmp_path
+):
+    """A camera import or a sync client dropping a file in mid-session must not
+    take the user's multi-selection with it: the next tool press would then act
+    on nothing, or on the wrong file."""
+    folder = make_folder(tmp_path, "shots", 3)
+    gui_settings.watch_folder = True
+    win = make_window(qtbot, gui_settings)
+    win.folder_input.setText(str(folder))
+    win.load_source()
+    win.file_list.select_all()
+    before = win.file_list.selected_path_set()
+    assert len(before) == 3
+
+    Image.new("RGB", (32, 32), (255, 255, 0)).save(folder / "new.png")
+    tick_watch(win)
+
+    assert len(win.media_files) == 4
+    assert {str(f.path) for f in win.file_list.selected_files()} >= before
+
+
+def test_the_table_view_keeps_its_selection_too(qtbot, gui_settings, tmp_path):
+    """The three views hold their selection in different widgets, so the grid
+    surviving says nothing about the table."""
+    gui_settings.list_view_mode = "table"
+    gui_settings.watch_folder = True
+    folder = make_folder(tmp_path, "shots-table", 3)
+    win = make_window(qtbot, gui_settings)
+    win.folder_input.setText(str(folder))
+    win.load_source()
+    win.file_list.select_all()
+    before = win.file_list.selected_path_set()
+    assert len(before) == 3
+
+    Image.new("RGB", (32, 32), (255, 255, 0)).save(folder / "new.png")
+    tick_watch(win)
+
+    assert {str(f.path) for f in win.file_list.selected_files()} >= before
+
+
+def test_a_file_deleted_elsewhere_leaves_the_rest_selected(
+    qtbot, gui_settings, tmp_path
+):
+    """The removed file drops out of the selection and nothing else does."""
+    folder = make_folder(tmp_path, "shots-deleted", 4)
+    gui_settings.watch_folder = True
+    win = make_window(qtbot, gui_settings)
+    win.folder_input.setText(str(folder))
+    win.load_source()
+    win.file_list.select_all()
+    assert len(win.file_list.selected_files()) == 4
+
+    (folder / "p2.png").unlink()
+    tick_watch(win)
+
+    surviving = sorted(f.name for f in win.file_list.selected_files())
+    assert surviving == ["p0.png", "p1.png", "p3.png"]
+
+
+def test_the_tools_stay_enabled_across_a_watch_tick(qtbot, gui_settings, tmp_path):
+    """The selection surviving is only half of it: the actions are enabled from
+    the selection, and a tick that leaves them disabled is the same failure one
+    step later."""
+    folder = make_folder(tmp_path, "shots-actions", 3)
+    gui_settings.watch_folder = True
+    win = make_window(qtbot, gui_settings)
+    win.folder_input.setText(str(folder))
+    win.load_source()
+    win.file_list.select_all()
+    assert win.action_gif.isEnabled()
+
+    Image.new("RGB", (32, 32), (255, 255, 0)).save(folder / "new.png")
+    tick_watch(win)
+
+    assert len(win.selected_images()) == 3
+    assert win.action_gif.isEnabled()

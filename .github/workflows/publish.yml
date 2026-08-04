@@ -197,9 +197,16 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
+            optional: false
           - runner: macos-13
             arch: x86_64
+            # Best-effort. macos-13 is the last Intel runner GitHub offers and
+            # is on its way out; when it goes, or queues past the timeout, an
+            # Intel build nobody can make any more must not paint a finished
+            # release red. Apple Silicon staying green is the release gate.
+            optional: true
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.optional }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -227,7 +234,14 @@ jobs:
     # queued or flaky macOS runner should not cost the release its Linux and
     # Windows downloads; the step below still fails if nothing at all was
     # produced, and a missing platform is visible in the release itself.
-    if: ${{ github.event_name == 'release' && !cancelled() }}
+    #
+    # A manual run counts too, as long as it was started from a tag. The retry
+    # path exists for a build that died half way, and a retry that rebuilds
+    # every artifact and then attaches none of them is not one -- 0.0.2 shipped
+    # with an empty release for exactly this reason and had to be filled in by
+    # hand. A run started from a branch has no release to attach to and is
+    # skipped, which is what the build job already refuses to do.
+    if: ${{ !cancelled() && (github.event_name == 'release' || github.ref_type == 'tag') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -240,7 +254,9 @@ jobs:
       - name: Attach them to the release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          # The release event carries the tag; a manual run has it as the ref it
+          # was started from, which the job condition has already required.
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
           shopt -s nullglob
