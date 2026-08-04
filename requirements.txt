@@ -17,6 +17,11 @@ Pillow>=10.0
 # feature.
 Send2Trash>=1.8      # "trash" extra: delete to system trash instead of unlink
 pillow-heif>=0.16    # "heif" extra: open and convert Apple HEIC photos
+numpy>=1.24          # "bgremove" extra: array maths for the segmentation model
+onnxruntime>=1.17    # "bgremove" extra: runs the model, without pulling rembg in
+#
+# The model weights are fetched on first use into ~/.myimages/models/, not
+# shipped: 170 MiB that most users never need.
 #
 # FFmpeg powers video trim/crop/scale and GIF export. It is a system tool, not a
 # pip package, so it cannot be listed here: install it with your package manager

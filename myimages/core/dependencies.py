@@ -67,6 +67,13 @@ REGISTRY: tuple[OptionalDependency, ...] = (
         import_name="pillow_heif",
         pip_package="pillow-heif",
     ),
+    OptionalDependency(
+        key="bgremove",
+        display_name="Automatic background removal",
+        purpose="Find the subject with a model instead of clicking it out by hand.",
+        import_name="onnxruntime",
+        pip_package="onnxruntime",
+    ),
 )
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]

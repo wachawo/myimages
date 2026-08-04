@@ -75,7 +75,7 @@ def test_is_available_returns_false_when_undetectable() -> None:
 def test_missing_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dependencies, "is_available", lambda dep: dep.key == "ffmpeg")
     missing = dependencies.missing_dependencies()
-    assert [dep.key for dep in missing] == ["trash", "heif"]
+    assert [dep.key for dep in missing] == ["trash", "heif", "bgremove"]
 
 
 def test_install_python_package_success() -> None:
