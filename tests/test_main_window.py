@@ -18,6 +18,7 @@ import pytest
 from PIL import Image
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
 
+from myimages import theme
 from myimages.core import thumbnails
 from myimages.core.media import MediaFile, MediaKind, build_media_file
 from myimages.core.plugins import PluginRegistry
@@ -1769,3 +1770,24 @@ def test_remove_background_does_nothing_without_a_current_image(qtbot, gui_setti
     win = make_window(qtbot, gui_settings)
     win.open_cutout_editor()
     assert win.preview_area.currentWidget() is not win.editor
+
+
+def test_the_wordmark_reads_myimages_in_two_colours(qtbot, gui_settings):
+    """MY takes the scheme's tint, IMAGES its text colour."""
+    win = make_window(qtbot, gui_settings)
+    markup = win.brand.text()
+    assert ">MY<" in markup and ">IMAGES<" in markup
+
+    dark = theme.scheme_for("dark")
+    assert dark.brand_tint in markup
+    assert dark.text in markup
+
+
+def test_the_wordmark_follows_a_theme_change(qtbot, gui_settings):
+    """A literal white would vanish against the light scheme."""
+    win = make_window(qtbot, gui_settings)
+    win.settings.theme = "light"
+    win.apply_theme()
+    light = theme.scheme_for("light")
+    assert light.brand_tint in win.brand.text()
+    assert light.text in win.brand.text()
