@@ -223,12 +223,16 @@ jobs:
     # Attaching the files is the only step here that needs write access, so it
     # is the only job that gets it.
     needs: [linux-artifacts, windows-artifact, macos-artifacts]
-    if: github.event_name == 'release'
+    # Runs even when one platform failed. The four builds are independent, and a
+    # queued or flaky macOS runner should not cost the release its Linux and
+    # Windows downloads; the step below still fails if nothing at all was
+    # produced, and a missing platform is visible in the release itself.
+    if: ${{ github.event_name == 'release' && !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download every artifact
+      - name: Download whatever was built
         uses: actions/download-artifact@v8
         with:
           path: assets
