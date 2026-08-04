@@ -44,6 +44,11 @@ class Settings:
     list_view_mode: str = "grid"  # one of VIEW_MODES: grid | list | table
     selection_mode: bool = False  # tap-to-select with a visible check circle
 
+    # Whether the desktop entry has ever been offered. Set once, whether the
+    # write worked or not: a user who deleted the entry deliberately should not
+    # find it back the next morning.
+    desktop_entry_attempted: bool = False
+
     # Layout.
     file_list_on_left: bool = False
     # How many thumbnails fit across the file list. The panel's width follows

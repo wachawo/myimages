@@ -14,13 +14,16 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from myimages import APP_NAME, DESKTOP_ID, ORGANISATION, __version__, icons, theme
-from myimages.config import load_settings
+from myimages.config import Settings, load_settings, save_settings
+from myimages.core import desktop
 from myimages.core.plugins import (
     PluginRegistry,
     load_bundled_plugins,
     load_plugins_from_dir,
 )
-from myimages.paths import is_frozen, log_file, plugins_dir
+from myimages.paths import data_dir, is_frozen, log_file, plugins_dir
+from myimages.system import is_linux
+from myimages.theme import write_app_icon
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +126,32 @@ def version_requested(arguments: Sequence[str]) -> bool:
     return any(argument in {"--version", "-V"} for argument in arguments)
 
 
+def install_desktop_entry_once(settings: Settings) -> bool:
+    """Put myImages in the application menu the first time it runs.
+
+    Returns whether anything was written. The flag is set either way, so a user
+    who removes the entry deliberately does not find it back on the next
+    launch, and a machine where the write cannot succeed does not retry forever.
+
+    Skipped where it could not mean anything: on Windows and macOS, which have
+    no freedesktop menu, and when an entry already exists -- a packaged build
+    installs its own, and rewriting it would point Exec at whatever happened to
+    start this process.
+    """
+    if settings.desktop_entry_attempted or not is_linux():
+        return False
+    settings.desktop_entry_attempted = True
+    if desktop.is_installed():
+        return False
+    icon = write_app_icon(data_dir() / "myimages-icon.png")
+    result = desktop.install(icon_source=icon)
+    if not result.succeeded:
+        log.warning(
+            "Could not add myImages to the application menu: %s", result.message
+        )
+    return result.succeeded
+
+
 def build_registry() -> PluginRegistry:
     """Create the plugin registry and load bundled and user plugins.
 
@@ -155,6 +184,9 @@ def main() -> None:  # pragma: no cover - owns the event loop
     # was already set and was never the problem. No .desktop suffix: Qt 6 wants
     # the bare id.
     app.setDesktopFileName(DESKTOP_ID)
+    if install_desktop_entry_once(settings):
+        log.info("Added myImages to the application menu")
+    save_settings(settings)
     app.setStyle("Fusion")
     apply_theme_to_app(settings.theme)
     app.setWindowIcon(theme.app_icon())

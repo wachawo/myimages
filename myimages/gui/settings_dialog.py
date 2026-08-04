@@ -191,13 +191,9 @@ class SettingsDialog(QDialog):
     def write_icon(self) -> Path | None:
         """Render the app icon to a file the installer can copy."""
         from myimages.paths import data_dir
-        from myimages.theme import app_icon
+        from myimages.theme import write_app_icon
 
-        destination = data_dir() / "myimages-icon.png"
-        pixmap = app_icon().pixmap(256, 256)
-        if pixmap.isNull() or not pixmap.save(str(destination), "PNG"):
-            return None
-        return destination
+        return write_app_icon(data_dir() / "myimages-icon.png")
 
     def values(self) -> dict[str, Any]:
         return {

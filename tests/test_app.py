@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from myimages.app import requested_file
 
 
@@ -153,3 +155,89 @@ def test_version_is_asked_for_by_either_spelling():
     assert version_requested(["-V"])
     assert not version_requested([])
     assert not version_requested(["/home/someone/photo.png"])
+
+
+def test_the_menu_entry_is_written_on_the_first_launch(qtbot, monkeypatch, tmp_path):
+    """It should appear by itself; nobody reads a settings dialog to find it."""
+    from myimages import app as app_module
+    from myimages.config import Settings
+
+    monkeypatch.setattr(app_module, "is_linux", lambda: True)
+    monkeypatch.setattr(app_module.desktop, "is_installed", lambda: False)
+    monkeypatch.setattr(
+        app_module, "write_app_icon", lambda destination, size=256: destination
+    )
+    written: list[object] = []
+    monkeypatch.setattr(
+        app_module.desktop,
+        "install",
+        lambda icon_source=None, **kwargs: written.append(icon_source)
+        or app_module.desktop.IntegrationResult(True, "done"),
+    )
+
+    settings = Settings()
+    assert app_module.install_desktop_entry_once(settings) is True
+    assert settings.desktop_entry_attempted
+    assert len(written) == 1
+
+
+def test_it_is_not_written_a_second_time(qtbot, monkeypatch):
+    """A user who deletes the entry should not find it back the next morning."""
+    from myimages import app as app_module
+    from myimages.config import Settings
+
+    monkeypatch.setattr(app_module, "is_linux", lambda: True)
+    monkeypatch.setattr(
+        app_module.desktop,
+        "install",
+        lambda **kwargs: pytest.fail("installed twice"),
+    )
+    settings = Settings(desktop_entry_attempted=True)
+    assert app_module.install_desktop_entry_once(settings) is False
+
+
+def test_an_existing_entry_is_left_alone(qtbot, monkeypatch):
+    """A packaged build installs its own; rewriting it would break its Exec."""
+    from myimages import app as app_module
+    from myimages.config import Settings
+
+    monkeypatch.setattr(app_module, "is_linux", lambda: True)
+    monkeypatch.setattr(app_module.desktop, "is_installed", lambda: True)
+    monkeypatch.setattr(
+        app_module.desktop, "install", lambda **kwargs: pytest.fail("overwrote")
+    )
+    settings = Settings()
+    assert app_module.install_desktop_entry_once(settings) is False
+    assert settings.desktop_entry_attempted
+
+
+def test_nothing_is_written_off_linux(qtbot, monkeypatch):
+    from myimages import app as app_module
+    from myimages.config import Settings
+
+    monkeypatch.setattr(app_module, "is_linux", lambda: False)
+    monkeypatch.setattr(
+        app_module.desktop, "install", lambda **kwargs: pytest.fail("installed")
+    )
+    settings = Settings()
+    assert app_module.install_desktop_entry_once(settings) is False
+    assert not settings.desktop_entry_attempted
+
+
+def test_a_failed_write_is_logged_and_not_retried(qtbot, monkeypatch, caplog):
+    from myimages import app as app_module
+    from myimages.config import Settings
+
+    monkeypatch.setattr(app_module, "is_linux", lambda: True)
+    monkeypatch.setattr(app_module.desktop, "is_installed", lambda: False)
+    monkeypatch.setattr(
+        app_module, "write_app_icon", lambda destination, size=256: None
+    )
+    monkeypatch.setattr(
+        app_module.desktop,
+        "install",
+        lambda **kwargs: app_module.desktop.IntegrationResult(False, "read-only home"),
+    )
+    settings = Settings()
+    assert app_module.install_desktop_entry_once(settings) is False
+    assert settings.desktop_entry_attempted

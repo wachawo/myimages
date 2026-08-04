@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- myImages adds itself to the application menu the first time it runs, on
+  Linux, so its icon is there without anyone opening a settings dialog to ask
+  for it. It happens once: an entry you delete stays deleted, and a packaged
+  build's own entry is left alone.
 - Screenshots of the interface in the README, and `scripts/make_demo_shots.py`
   that regenerates them from the real application so they cannot drift away
   from what it looks like.

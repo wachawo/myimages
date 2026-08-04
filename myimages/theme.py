@@ -9,6 +9,7 @@ stay in sync.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
@@ -236,6 +237,19 @@ def paint_app_icon(painter: QPainter) -> None:
     painter.drawEllipse(QPointF(128, 150), 30, 30)
     painter.setBrush(QColor("#dbe7ff"))
     painter.drawEllipse(QPointF(138, 140), 8, 8)
+
+
+def write_app_icon(destination: Path, size: int = 256) -> Path | None:
+    """Render the application icon to a PNG, or None if it could not be drawn.
+
+    The installer needs a file: an icon theme is a directory of images, and the
+    painter that draws every other icon in this application produces a QIcon.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    pixmap = app_icon().pixmap(size, size)
+    if pixmap.isNull() or not pixmap.save(str(destination), "PNG"):
+        return None
+    return destination
 
 
 def app_icon() -> QIcon:
