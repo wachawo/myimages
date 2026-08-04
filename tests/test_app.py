@@ -143,3 +143,13 @@ def test_the_registry_loads_the_bundled_plugins(qtbot):
 
     registry = app_module.build_registry()
     assert ".obj" in registry.handled_extensions()  # the 3D example ships with us
+
+
+def test_version_is_asked_for_by_either_spelling():
+    """main() owns the event loop and is pragma-excluded, so the test is here."""
+    from myimages.app import version_requested
+
+    assert version_requested(["--version"])
+    assert version_requested(["-V"])
+    assert not version_requested([])
+    assert not version_requested(["/home/someone/photo.png"])

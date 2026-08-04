@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from myimages.config import Settings
 from myimages.core import desktop
 from myimages.gui.dialog_buttons import accept_cancel
+from myimages.system import is_linux
 
 THEME_LABELS: tuple[tuple[str, str], ...] = (("dark", "Dark"), ("light", "Light"))
 
@@ -103,7 +104,11 @@ class SettingsDialog(QDialog):
         form.addRow("", self.pdf_grayscale_check)
 
         layout.addLayout(form)
-        layout.addWidget(self.build_desktop_section())
+        # Only on Linux. Everywhere else this wrote a .desktop file that could
+        # never take effect and then reported success, which is worse than not
+        # offering it at all.
+        if is_linux():
+            layout.addWidget(self.build_desktop_section())
         buttons = accept_cancel("Save Settings")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)

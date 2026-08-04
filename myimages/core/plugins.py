@@ -12,6 +12,7 @@ stored factories.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import logging
 from collections.abc import Callable, Iterable
@@ -22,6 +23,11 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 WidgetFactory = Callable[[Path], Any]
+
+
+# The viewers that ship inside the package. Named rather than discovered so a
+# packaged build cannot quietly lose one.
+BUNDLED_PLUGINS: tuple[str, ...] = ("three_d_preview",)
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,31 @@ def load_plugin_file(path: Path, registry: PluginRegistry) -> bool:
     except Exception:  # noqa: BLE001 - a plugin must never crash the host
         log.exception("failed to load plugin %s", path.name)
         return False
+
+
+def load_bundled_plugins(registry: PluginRegistry) -> int:
+    """Register the plugins that ship inside the package, by import.
+
+    Not by scanning a directory: a packaged build has no ``.py`` files on disk
+    for the scanner to find, so the bundled viewers silently disappeared from
+    every artifact while working perfectly from a source checkout. Importing
+    goes through whatever the interpreter is using -- a folder, a zip, a frozen
+    archive -- so it is the same code path in both.
+    """
+    loaded = 0
+    for name in BUNDLED_PLUGINS:
+        try:
+            module = importlib.import_module(f"myimages.plugins.{name}")
+        except Exception:
+            log.exception("Bundled plugin %s could not be imported", name)
+            continue
+        register = getattr(module, "register", None)
+        if register is None:
+            log.warning("Bundled plugin %s has no register()", name)
+            continue
+        register(registry)
+        loaded += 1
+    return loaded
 
 
 def load_plugins_from_dir(directory: Path, registry: PluginRegistry) -> int:

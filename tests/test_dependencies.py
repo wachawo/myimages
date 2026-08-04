@@ -127,3 +127,29 @@ def test_run_pip_install_executes_command() -> None:
     result = dependencies.run_pip_install([sys.executable, "-c", "print('hi')"])
     assert result.returncode == 0
     assert "hi" in result.stdout
+
+
+def test_a_packaged_build_refuses_to_install_rather_than_relaunching_itself(
+    monkeypatch,
+):
+    """sys.executable -m pip in a bundle opens a second window, not a package."""
+    from myimages.core import dependencies
+
+    monkeypatch.setattr(dependencies, "is_frozen", lambda: True)
+    assert not dependencies.can_install()
+
+    target = dependencies.find_dependency("bgremove")
+    assert target is not None
+    result = dependencies.install(target, runner=lambda command: pytest.fail("ran pip"))
+    assert not result.succeeded
+    assert "Packaged builds ship what they support" in result.output
+
+
+def test_the_system_tool_message_names_this_platforms_command(monkeypatch):
+    from myimages.core import dependencies
+
+    monkeypatch.setattr(dependencies, "ffmpeg_hint", lambda: "brew install ffmpeg")
+    ffmpeg = dependencies.find_dependency("ffmpeg")
+    assert ffmpeg is not None
+    result = dependencies.install(ffmpeg)
+    assert "brew install ffmpeg" in result.output

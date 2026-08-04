@@ -27,6 +27,9 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from myimages.paths import is_frozen
+from myimages.system import quiet_subprocess_flags
+
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
 ENTRY_NAME = "myimages.desktop"
@@ -90,10 +93,18 @@ def launch_command() -> str:
     console script is preferred when one is on the path, because it survives the
     virtual environment being rebuilt.
     """
+    if is_frozen():
+        # A packaged build IS the executable, and the source tree the branch
+        # below reaches for does not exist inside it.
+        return f"{Path(sys.executable).resolve()} %F"
     installed = shutil.which("myimages")
     if installed:
         return f"{installed} %F"
     entry_point = Path(__file__).resolve().parent.parent.parent / "main.py"
+    if not entry_point.is_file():
+        # A wheel install without its console script on the path: main.py is not
+        # shipped, so run the module instead of naming a file that is not there.
+        return f"{sys.executable} -m myimages.app %F"
     return f"{sys.executable} {entry_point} %F"
 
 
@@ -119,7 +130,11 @@ def build_entry(command: str, mime_types: Iterable[str] = ()) -> str:
 
 def default_runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - command is app-controlled
-        list(command), capture_output=True, text=True, check=False
+        list(command),
+        capture_output=True,
+        text=True,
+        check=False,
+        creationflags=quiet_subprocess_flags(),
     )
 
 

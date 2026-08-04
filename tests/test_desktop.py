@@ -302,3 +302,29 @@ def test_default_for_survives_a_helper_that_cannot_run(
         raise OSError("exec format error")
 
     assert desktop.default_for("image/png", explode) is False
+
+
+def test_a_packaged_build_launches_itself(monkeypatch):
+    """Inside a bundle sys.executable IS the app, and main.py does not exist."""
+    from myimages.core import desktop
+
+    monkeypatch.setattr(desktop, "is_frozen", lambda: True)
+    monkeypatch.setattr(desktop.sys, "executable", "/opt/myimages/myimages")
+    assert desktop.launch_command() == "/opt/myimages/myimages %F"
+
+
+def test_a_wheel_install_runs_the_module_rather_than_a_missing_file(
+    monkeypatch, tmp_path
+):
+    """A wheel ships no main.py, so naming one would write a dead command."""
+    from pathlib import Path
+
+    from myimages.core import desktop
+
+    monkeypatch.setattr(desktop, "is_frozen", lambda: False)
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: None)
+    monkeypatch.setattr(desktop, "__file__", str(tmp_path / "a" / "b" / "desktop.py"))
+    assert Path(desktop.__file__).parent.parent.parent / "main.py" != tmp_path
+    assert desktop.launch_command().startswith(
+        f"{desktop.sys.executable} -m myimages.app"
+    )

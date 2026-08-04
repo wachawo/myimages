@@ -15,7 +15,11 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from myimages import APP_NAME, ORGANISATION, __version__, icons, theme
 from myimages.config import load_settings
-from myimages.core.plugins import PluginRegistry, load_plugins_from_dir
+from myimages.core.plugins import (
+    PluginRegistry,
+    load_bundled_plugins,
+    load_plugins_from_dir,
+)
 from myimages.paths import is_frozen, log_file, plugins_dir
 
 log = logging.getLogger(__name__)
@@ -114,15 +118,28 @@ def requested_file(arguments: Sequence[str]) -> Path | None:
     return None
 
 
+def version_requested(arguments: Sequence[str]) -> bool:
+    """Whether the command line asked for the version and nothing else."""
+    return any(argument in {"--version", "-V"} for argument in arguments)
+
+
 def build_registry() -> PluginRegistry:
-    """Create the plugin registry and load bundled and user plugins."""
+    """Create the plugin registry and load bundled and user plugins.
+
+    The bundled ones are imported and the user's are still scanned off disk:
+    only the user folder is a real directory in every deployment, and a packaged
+    build has no ``.py`` files of its own for a scanner to find.
+    """
     registry = PluginRegistry()
-    load_plugins_from_dir(Path(__file__).parent / "plugins", registry)
+    load_bundled_plugins(registry)
     load_plugins_from_dir(plugins_dir(), registry)
     return registry
 
 
 def main() -> None:  # pragma: no cover - owns the event loop
+    if version_requested(sys.argv[1:]):
+        print(f"myImages {__version__}")
+        return
     setup_logging()
     sys.excepthook = excepthook
     settings = load_settings()

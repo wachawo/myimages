@@ -16,6 +16,9 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from myimages.paths import is_frozen
+from myimages.system import ffmpeg_hint, quiet_subprocess_flags
+
 
 @dataclass(frozen=True)
 class OptionalDependency:
@@ -103,7 +106,20 @@ def run_pip_install(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        creationflags=quiet_subprocess_flags(),
     )
+
+
+def can_install() -> bool:
+    """Whether pip can install into this deployment at all.
+
+    False in a packaged build. There, ``sys.executable`` is the application
+    rather than an interpreter, so ``sys.executable -m pip`` launches a second
+    copy of the window instead of installing anything, and the prefix is
+    read-only or root-owned besides. Those builds ship the optional packages
+    already, so the honest answer to the user is that there is nothing to do.
+    """
+    return not is_frozen()
 
 
 def install(
@@ -115,13 +131,22 @@ def install(
     External tools (ffmpeg) cannot be installed this way; the caller is told to
     use the system package manager.
     """
+    if not can_install():
+        return InstallResult(
+            dependency=dependency,
+            succeeded=False,
+            output=(
+                f"{dependency.display_name} cannot be installed into this build. "
+                "Packaged builds ship what they support already."
+            ),
+        )
     if not dependency.is_python_package:
         return InstallResult(
             dependency=dependency,
             succeeded=False,
             output=(
                 f"{dependency.display_name} is a system tool. Install it with "
-                "your package manager (e.g. 'sudo apt install ffmpeg')."
+                f"your package manager: {ffmpeg_hint()}"
             ),
         )
     command = [sys.executable, "-m", "pip", "install", dependency.pip_package or ""]

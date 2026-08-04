@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `myimages --version`.
+
 - Automatic background removal in the editor: one press finds the subject with
   a model and clears the rest. It needs the optional extra
   (`pip install "myimages[bgremove]"`) and a one-off model download, and the
@@ -55,6 +57,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flattened without being asked for, and no original is deleted.
 
 ### Fixed
+
+- Bundled plugins are found in packaged builds. The loader scanned for `.py`
+  files on disk, which a packaged build does not have, so the 3D preview
+  silently disappeared from every artifact while working from a source
+  checkout.
+- Desktop-integration settings are shown only on Linux. Elsewhere they wrote a
+  `.desktop` file that could never take effect and then reported success.
+- Optional features cannot be pip-installed into a packaged build, and now say
+  so instead of relaunching the application. Those builds ship what they
+  support already.
+- Install advice for FFmpeg names the command for the platform you are on
+  rather than always suggesting `apt`.
+- The helper processes the app runs no longer flash a console window on
+  Windows — one per video thumbnail as a gallery scrolled.
 
 - Saving an image with transparency over a JPEG destroyed the original. Pillow
   opens the destination for writing before the encoder rejects the mode, so the

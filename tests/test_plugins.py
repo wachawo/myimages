@@ -164,3 +164,29 @@ def test_load_plugins_from_dir_missing_directory_returns_zero(tmp_path: Path) ->
     registry = PluginRegistry()
     assert load_plugins_from_dir(tmp_path / "nope", registry) == 0
     assert registry.viewers == []
+
+
+def test_bundled_plugins_are_registered_by_import(caplog):
+    """A packaged build has no .py files on disk for a scanner to find."""
+    from myimages.core.plugins import PluginRegistry, load_bundled_plugins
+
+    registry = PluginRegistry()
+    assert load_bundled_plugins(registry) == 1
+    assert registry.handled_extensions()
+
+
+def test_a_bundled_plugin_that_will_not_import_is_logged_and_skipped(monkeypatch):
+    from myimages.core import plugins
+
+    monkeypatch.setattr(plugins, "BUNDLED_PLUGINS", ("no_such_module",))
+    registry = plugins.PluginRegistry()
+    assert plugins.load_bundled_plugins(registry) == 0
+
+
+def test_a_bundled_plugin_without_register_is_skipped(monkeypatch):
+    from myimages.core import plugins
+
+    # A real, importable module of ours that has no register() function.
+    monkeypatch.setattr(plugins, "BUNDLED_PLUGINS", ("__init__",))
+    registry = plugins.PluginRegistry()
+    assert plugins.load_bundled_plugins(registry) == 0

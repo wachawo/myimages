@@ -15,6 +15,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from myimages.system import ffmpeg_hint, quiet_subprocess_flags
+
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
 
@@ -48,7 +50,7 @@ def require_ffmpeg() -> None:
     if ffmpeg_path() is None or ffprobe_path() is None:
         raise FfmpegError(
             "FFmpeg is not installed. Install it with your system package "
-            "manager (e.g. 'sudo apt install ffmpeg')."
+            f"manager: {ffmpeg_hint()}"
         )
 
 
@@ -59,6 +61,7 @@ def default_runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        creationflags=quiet_subprocess_flags(),
     )
 
 
