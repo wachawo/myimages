@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The application icon now appears in the taskbar. The icon was always being
+  published; what was missing was the window's identity — it told GTK shells,
+  KDE and Wayland that it was "python3", so a panel matched it to the
+  interpreter and drew the interpreter's icon. The desktop entry also names the
+  window class a panel matches a running window on.
 - Saving an image threw away its print resolution. Every format lost it, and
   TIFF and BMP wrote a *wrong* one — a 300 dpi scan opened, rotated and saved
   came back claiming 1 dpi or 96 dpi. The value is now carried across, and

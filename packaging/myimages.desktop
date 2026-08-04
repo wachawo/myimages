@@ -9,3 +9,4 @@ Terminal=false
 Categories=Graphics;Viewer;Photography;
 MimeType=image/jpeg;image/png;image/webp;image/bmp;image/tiff;image/gif;video/mp4;video/quicktime;video/x-matroska;
 Keywords=photo;image;video;viewer;convert;crop;pdf;gif;
+StartupWMClass=myImages

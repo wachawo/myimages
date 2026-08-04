@@ -13,7 +13,7 @@ from types import TracebackType
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from myimages import APP_NAME, ORGANISATION, __version__, icons, theme
+from myimages import APP_NAME, DESKTOP_ID, ORGANISATION, __version__, icons, theme
 from myimages.config import load_settings
 from myimages.core.plugins import (
     PluginRegistry,
@@ -149,6 +149,12 @@ def main() -> None:  # pragma: no cover - owns the event loop
     app.setOrganizationName(ORGANISATION)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
+    # Without this the window tells GTK shells, KDE and Wayland that it is
+    # "python3", so the panel matches it to the interpreter and draws the
+    # interpreter's icon -- measured with xprop, not inferred. The window icon
+    # was already set and was never the problem. No .desktop suffix: Qt 6 wants
+    # the bare id.
+    app.setDesktopFileName(DESKTOP_ID)
     app.setStyle("Fusion")
     apply_theme_to_app(settings.theme)
     app.setWindowIcon(theme.app_icon())

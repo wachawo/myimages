@@ -328,3 +328,42 @@ def test_a_wheel_install_runs_the_module_rather_than_a_missing_file(
     assert desktop.launch_command().startswith(
         f"{desktop.sys.executable} -m myimages.app"
     )
+
+
+def test_the_entry_names_the_class_a_panel_matches_on():
+    """Without it the running window and its launcher stay strangers.
+
+    Measured with xprop: Qt puts the application name in WM_CLASS's second
+    field, so that is what StartupWMClass has to carry.
+    """
+    from myimages import APP_NAME
+    from myimages.core import desktop
+
+    entry = desktop.build_entry("myimages %F")
+    assert f"StartupWMClass={APP_NAME}" in entry
+
+
+def test_the_shipped_entry_agrees_with_the_one_the_app_writes(tmp_path):
+    """Two entries claiming different classes would match on different panels."""
+    from pathlib import Path
+
+    from myimages.core import desktop
+
+    shipped = (
+        Path(__file__).resolve().parent.parent / "packaging" / "myimages.desktop"
+    ).read_text()
+    written = desktop.build_entry("myimages %F")
+    for key in ("StartupWMClass", "Icon", "Name"):
+        prefix = key + "="
+        shipped_line = next(
+            line for line in shipped.splitlines() if line.startswith(prefix)
+        )
+        assert shipped_line in written, key
+
+
+def test_the_entry_and_icon_names_come_from_one_identifier():
+    from myimages import DESKTOP_ID
+    from myimages.core import desktop
+
+    assert f"{DESKTOP_ID}.desktop" == desktop.ENTRY_NAME
+    assert desktop.ICON_NAME == DESKTOP_ID

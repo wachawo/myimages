@@ -27,13 +27,14 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from myimages import APP_NAME, DESKTOP_ID
 from myimages.paths import is_frozen
 from myimages.system import quiet_subprocess_flags
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
-ENTRY_NAME = "myimages.desktop"
-ICON_NAME = "myimages"
+ENTRY_NAME = f"{DESKTOP_ID}.desktop"
+ICON_NAME = DESKTOP_ID
 
 # The types the app can genuinely open. Offered as defaults only when the user
 # asks for it, because silently stealing every photo association from whatever
@@ -122,6 +123,10 @@ def build_entry(command: str, mime_types: Iterable[str] = ()) -> str:
         "Terminal=false",
         "Categories=Graphics;Viewer;Photography;",
         "Keywords=photo;image;video;viewer;convert;crop;pdf;gif;",
+        # The second field of the window's WM_CLASS, which Qt takes from the
+        # application name. A panel matches the running window to this entry on
+        # it; without it the window and its launcher stay strangers.
+        f"StartupWMClass={APP_NAME}",
     ]
     if types:
         lines.append(f"MimeType={types};")
