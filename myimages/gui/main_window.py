@@ -639,7 +639,7 @@ class MainWindow(QMainWindow):
         if self.preview_area.currentWidget() is not self.editor:
             self.open_edit()
         if self.preview_area.currentWidget() is self.editor:
-            self.editor.set_mode("cutout")
+            self.editor.set_mode("background")
 
     # -- favourites & deletion --------------------------------------------
 

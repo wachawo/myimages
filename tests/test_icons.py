@@ -44,6 +44,8 @@ SIMPLE_FACTORIES = [
     icons.compare,
     icons.backdrop,
     icons.auto_subject,
+    icons.clear_selection,
+    icons.undo,
 ]
 
 

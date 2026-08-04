@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PIL import Image, ImageDraw
 
 from myimages.core.media import build_media_file
@@ -90,13 +91,44 @@ def test_apply_crop_without_selection_is_a_noop(qtbot, make_image):
     assert editor.working_image.size == (80, 60)
 
 
-def test_aspect_buttons_lock_the_canvas(qtbot, make_image):
+def test_the_shape_list_locks_the_canvas(qtbot, make_image):
+    """Eight chips wanted 427 pixels; the combo wants 116 and holds more."""
     editor = make_editor(qtbot)
-    editor.load(media_from(make_image, size=(80, 60)))
-    # The second aspect button is 1:1.
-    square_button = editor.aspect_group.buttons()[1]
-    square_button.click()
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+
+    index = next(
+        i
+        for i in range(editor.aspect_combo.count())
+        if editor.aspect_combo.itemText(i) == "1:1"
+    )
+    editor.aspect_combo.setCurrentIndex(index)
+    editor.on_aspect_chosen(index)
     assert editor.canvas.aspect == (1, 1)
+
+
+def test_a_typed_shape_is_accepted(qtbot, make_image):
+    """Print work needs shapes the eight presets never held: a KDP cover is
+    0.7667, and typing it has to work."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+
+    editor.aspect_combo.setCurrentText("0.7667")
+    editor.on_aspect_typed()
+    assert editor.canvas.aspect is not None
+    width, height = editor.canvas.aspect
+    assert abs(width / height - 0.7667) < 0.0001
+
+
+def test_a_typed_shape_that_is_not_one_says_so(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+    editor.aspect_combo.setCurrentText("banana")
+    editor.on_aspect_typed()
+    assert "not a shape" in editor.status_label.text()
+    assert editor.canvas.aspect is None
 
 
 def test_save_over_writes_and_emits_closed_true(qtbot, make_image):
@@ -450,34 +482,58 @@ def test_remove_watermark_ignores_a_second_press_while_busy(qtbot, make_image):
 # -- cut-out mode ----------------------------------------------------------
 
 
-def test_entering_cutout_mode_swaps_which_controls_are_shown(qtbot, make_image):
-    """The row already only fits by scrolling, so the modes must not stack."""
+def test_each_pane_shows_only_its_own_tools(qtbot, make_image):
+    """One row carrying every tool wanted 1191 pixels against the 1006 it gets."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
     editor.show()
 
-    assert editor.crop_button.isVisible()
-    assert not editor.wand_button.isVisible()
-
-    editor.set_mode("cutout")
+    editor.set_mode("edit")
+    assert editor.rotate_left_button.isVisible()
     assert not editor.crop_button.isVisible()
-    assert editor.wand_button.isVisible()
-    assert editor.cutout_mode_button.isChecked()
+    assert not editor.wand_button.isVisible()
 
     editor.set_mode("crop")
     assert editor.crop_button.isVisible()
+    assert not editor.rotate_left_button.isVisible()
     assert not editor.wand_button.isVisible()
+
+    editor.set_mode("background")
+    assert editor.wand_button.isVisible()
+    assert editor.watermark_button.isVisible()
+    assert not editor.crop_button.isVisible()
+
+
+def test_the_commit_buttons_are_never_scrolled_out_of_reach(qtbot, make_image):
+    """Measured at the app's own width, Save as Copy and Cancel sat past the
+    right-hand edge of the scrolling row."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.resize(700, 500)
+    editor.show()
+
+    for button in (editor.save_button, editor.copy_button, editor.cancel_button):
+        assert button.isVisible()
+        right = button.mapTo(editor, button.rect().topRight()).x()
+        assert right <= editor.width()
+
+
+def test_an_unknown_pane_is_refused(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    with pytest.raises(ValueError):
+        editor.set_mode("sepia")
 
 
 def test_load_resets_the_mode_between_files(qtbot, make_image):
     """Opening a second file in cut-out mode would inherit the first's tools."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image, name="one.png"))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
 
     editor.load(media_from(make_image, name="two.png"))
-    assert editor.mode == "crop"
+    assert editor.mode == "edit"
     assert editor.active_tool is None
     assert editor.edits == []
 
@@ -485,7 +541,7 @@ def test_load_resets_the_mode_between_files(qtbot, make_image):
 def test_arming_the_same_tool_twice_disarms_it(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
 
     editor.arm_tool("erase")
     assert editor.active_tool == "erase"
@@ -499,7 +555,7 @@ def test_arming_the_same_tool_twice_disarms_it(qtbot, make_image):
 def test_the_wand_needs_arming_before_a_click_counts(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
 
     editor.on_point_picked(0.5, 0.5)
     assert editor.edits == []
@@ -513,7 +569,7 @@ def test_a_drag_becomes_one_stroke_holding_every_dab(qtbot, make_image):
     """Undo steps back a gesture, so the dabs of one drag are a single entry."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("erase")
 
     editor.on_stroke(0.2, 0.5, True)
@@ -532,7 +588,7 @@ def test_a_drag_becomes_one_stroke_holding_every_dab(qtbot, make_image):
 def test_undo_drops_the_last_edit_and_says_so_when_empty(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
 
@@ -550,7 +606,7 @@ def test_save_names_the_png_it_will_write_over_a_jpeg(qtbot, make_image):
     editor.load(media)
     assert editor.save_button.text() == "Save"
 
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
 
@@ -564,7 +620,7 @@ def test_save_names_the_png_it_will_write_over_a_jpeg(qtbot, make_image):
 def test_save_keeps_its_name_when_the_format_can_hold_alpha(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image, name="shot.png"))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
     assert editor.save_button.text() == "Save"
@@ -577,7 +633,7 @@ def test_saving_a_cutout_writes_a_transparent_file_at_full_size(
     editor = make_editor(qtbot)
     media = media_from(make_image, name="shot.png", size=(120, 90))
     editor.load(media)
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
 
@@ -600,7 +656,7 @@ def test_soften_scales_with_the_image_so_preview_and_export_agree(qtbot, make_im
 def test_compare_shows_the_untouched_picture_while_held(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
     edited = editor.canvas.pixmap.toImage()
@@ -626,7 +682,7 @@ def test_the_backdrop_button_cycles_through_every_backdrop(qtbot, make_image):
 def test_the_steppers_stay_inside_their_ranges(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
 
     for step in range(40):
         editor.step_tolerance(-1)
@@ -652,7 +708,7 @@ def test_a_wand_click_that_takes_everything_says_so(qtbot, make_image):
     """A tolerance too high for the picture is the common first mistake."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.tolerance = 120
     editor.on_point_picked(0.5, 0.5)
@@ -681,7 +737,7 @@ def test_a_modest_wand_click_reports_what_it_cleared(qtbot, tmp_path: Path):
 
     editor = make_editor(qtbot)
     editor.load(build_media_file(path))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.tolerance = 8
     editor.on_point_picked(0.25, 0.5)
@@ -691,7 +747,7 @@ def test_a_modest_wand_click_reports_what_it_cleared(qtbot, tmp_path: Path):
 def test_a_stroke_is_ignored_when_no_brush_is_armed(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_stroke(0.5, 0.5, True)
     assert editor.edits == []
@@ -701,7 +757,7 @@ def test_a_quick_drag_is_filled_in_rather_than_left_dotted(qtbot, make_image):
     """Three sparse pointer events must become a stroke, not three circles."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image, size=(400, 300)))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("erase")
 
     editor.on_stroke(0.1, 0.5, True)
@@ -732,7 +788,7 @@ def test_opening_a_file_puts_the_save_button_back(qtbot, make_image):
     """A transparent result left Save renamed; the next file is not transparent."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image, name="one.jpg"))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
     assert editor.save_button.text() == "Save as PNG"
@@ -747,7 +803,7 @@ def test_opening_a_file_puts_the_save_button_back(qtbot, make_image):
 def cutout_editor(qtbot, make_image, name="shot.png"):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image, name=name))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     return editor
 
 
@@ -941,7 +997,7 @@ def test_a_cutout_survives_switching_away_from_the_cutout_tools(qtbot, tmp_path:
 
     editor = make_editor(qtbot)
     editor.load(build_media_file(path))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.25, 0.5)
     assert editor.save_button.text() == "Save as PNG"
@@ -962,7 +1018,7 @@ def test_a_cutout_survives_switching_away_from_the_cutout_tools(qtbot, tmp_path:
 def test_the_result_follows_the_edits_not_the_mode(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
-    editor.set_mode("cutout")
+    editor.set_mode("background")
     editor.arm_tool("wand")
     editor.on_point_picked(0.5, 0.5)
 
@@ -972,3 +1028,142 @@ def test_the_result_follows_the_edits_not_the_mode(qtbot, make_image):
 
     editor.undo_edit()
     assert editor.result_image() is editor.working_image
+
+
+# -- resizing --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("3:2", 1.5),
+        ("3/2", 1.5),
+        ("0.7667", 0.7667),
+        ("16 : 9", 16 / 9),
+    ],
+)
+def test_a_shape_can_be_written_either_way(text, expected):
+    """A camera says 3:2 and a page specification says 0.7667; both are shapes."""
+    ratio = ie.parse_aspect(text)
+    assert ratio is not None
+    assert abs(ratio[0] / ratio[1] - expected) < 0.0002
+
+
+@pytest.mark.parametrize("text", ["banana", "", "3:0", "-2:1", "1:banana"])
+def test_something_that_is_not_a_shape_is_refused(text):
+    assert ie.parse_aspect(text) is None
+
+
+def test_the_resize_dialog_follows_the_shape_while_it_is_locked(qtbot):
+    dialog = ie.ResizeDialog(1000, 500)
+    qtbot.addWidget(dialog)
+    assert dialog.chosen_size() == (1000, 500)
+
+    dialog.width_spin.setValue(600)
+    assert dialog.chosen_size() == (600, 300)
+
+    dialog.height_spin.setValue(200)
+    assert dialog.chosen_size() == (400, 200)
+
+
+def test_the_resize_dialog_lets_the_shape_go(qtbot):
+    dialog = ie.ResizeDialog(1000, 500)
+    qtbot.addWidget(dialog)
+    dialog.keep_ratio.setChecked(False)
+    dialog.width_spin.setValue(300)
+    assert dialog.chosen_size() == (300, 500)
+
+
+def test_the_resize_dialog_says_when_it_would_invent_pixels(qtbot):
+    """Enlarging cannot add detail; saying so once beats finding out in print."""
+    dialog = ie.ResizeDialog(1000, 500)
+    qtbot.addWidget(dialog)
+    assert "From 1000 × 500" in dialog.note.text()
+
+    dialog.width_spin.setValue(3000)
+    assert "cannot add detail" in dialog.note.text()
+
+
+def test_resizing_replaces_the_picture_and_drops_the_old_selection(
+    qtbot, make_image, monkeypatch
+):
+    """A rectangle counted in the old grid is a box the user did not draw."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(200, 150)))
+    editor.canvas.selection = CropRect(10, 10, 40, 30)
+
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.exec",
+        lambda self: ie.QDialog.DialogCode.Accepted,
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.chosen_size", lambda self: (100, 75)
+    )
+    editor.open_resize()
+
+    assert editor.working_image is not None
+    assert editor.working_image.size == (100, 75)
+    assert editor.canvas.selection_rect() is None
+    assert "100 × 75" in editor.status_label.text()
+
+
+def test_a_cancelled_resize_changes_nothing(qtbot, make_image, monkeypatch):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(200, 150)))
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.exec",
+        lambda self: ie.QDialog.DialogCode.Rejected,
+    )
+    editor.open_resize()
+    assert editor.working_image is not None
+    assert editor.working_image.size == (200, 150)
+
+
+def test_resizing_to_the_same_size_does_nothing(qtbot, make_image, monkeypatch):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(200, 150)))
+    before = editor.working_image
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.exec",
+        lambda self: ie.QDialog.DialogCode.Accepted,
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ResizeDialog.chosen_size", lambda self: (200, 150)
+    )
+    editor.open_resize()
+    assert editor.working_image is before
+
+
+def test_resizing_does_nothing_before_a_file_is_open(qtbot):
+    editor = make_editor(qtbot)
+    editor.open_resize()
+    assert editor.working_image is None
+
+
+def test_switching_panes_says_a_pending_cutout_is_still_in_the_save(qtbot, make_image):
+    """The cut-out is invisible outside its pane but is still what Save writes."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("background")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+
+    editor.set_mode("edit")
+    assert "pending" in editor.status_label.text()
+
+
+def test_the_canvas_refresh_does_nothing_before_a_file_is_open(qtbot):
+    editor = make_editor(qtbot)
+    editor.refresh_canvas()
+    assert editor.working_image is None
+
+
+def test_an_empty_shape_box_is_left_alone(qtbot, make_image):
+    """Clearing the text should not be read as asking for a shape."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+    editor.canvas.set_aspect((3, 2))
+    editor.aspect_combo.setCurrentText("   ")
+    editor.on_aspect_typed()
+    assert editor.canvas.aspect == (3, 2)

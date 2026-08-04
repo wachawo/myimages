@@ -1752,7 +1752,7 @@ def test_remove_background_opens_the_editor_already_in_cutout_mode(
     load_gallery(win, image_dir)
     win.open_cutout_editor()
     assert win.preview_area.currentWidget() is win.editor
-    assert win.editor.mode == "cutout"
+    assert win.editor.mode == "background"
 
 
 def test_remove_background_is_offered_only_for_an_image(qtbot, gui_settings, image_dir):

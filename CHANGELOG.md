@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The editor is now three panes — **Edit**, **Crop** and **Background** — chosen
+  with tabs. One row carrying every tool wanted more width than the window
+  gives it, so Save as Copy and Cancel sat past the right-hand edge at the
+  application's own default size. Save, Save as Copy and Cancel are now pinned
+  where no window width can hide them, and each pane's row fits with room to
+  spare.
+- Edit holds rotating, mirroring and a new **Resize**: set the picture's size in
+  pixels, with the shape locked or free. It says when a resize would enlarge,
+  because that invents pixels rather than finding detail.
+- Crop's eight fixed shapes become one list you can also type into, so shapes no
+  preset held — a print cover is 0.7667 — are reachable.
+- Background holds removing the background and removing a watermark, with the
+  three cut-out settings behind one button rather than spread across the row.
+
+
 ### Fixed
 
 - Switching away from the cut-out tools silently discarded the cut-out. The

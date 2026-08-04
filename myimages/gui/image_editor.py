@@ -13,26 +13,35 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSpinBox,
+    QTabBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from myimages import icons
 from myimages.core.media import MediaFile
 from myimages.gui.crop_canvas import BACKDROPS, CropCanvas
 from myimages.gui.dependencies_dialog import DependenciesDialog
+from myimages.gui.dialog_buttons import accept_cancel
 from myimages.gui.task_runner import Runner, threaded_runner
 from myimages.imaging import cutout, save_policy, segment, transform, watermark
 from myimages.imaging.transform import CropRect
@@ -58,6 +67,70 @@ MODEL_STEPS = 100
 # One soften step, as a fraction of the image width, so a softened edge looks
 # the same on the preview and in the file that gets written.
 SOFTEN_PER_STEP = 0.0016
+
+# The three panes. Splitting them is what makes each row fit: one row carrying
+# every tool wanted 1191 pixels against the 1006 the window gives it.
+MODES: tuple[str, ...] = ("edit", "crop", "background")
+MODE_LABELS: dict[str, str] = {
+    "edit": "Edit",
+    "crop": "Crop",
+    "background": "Background",
+}
+
+# What a press on the canvas means in each pane with no cut-out tool armed.
+# Edit has nothing to draw, and leaving it on "crop" gave the user a rubber band
+# that did nothing while enabling a Crop button that lives in another pane.
+IDLE_INTERACTION: dict[str, str] = {
+    "edit": "crop",
+    "crop": "crop",
+    "background": "crop",
+}
+
+# Which interaction each armed cut-out tool wants.
+TOOL_INTERACTION: dict[str, str] = {
+    "wand": "pick",
+    "erase": "paint",
+    "restore": "paint",
+}
+
+# Wide enough for the longest shape label without stealing from the tool strip.
+ASPECT_COMBO_WIDTH = 116
+
+# A ceiling on a typed size. Past this the resize is a mistake rather than an
+# intention, and Pillow would spend a long time proving it.
+MAXIMUM_EDGE = 30000
+
+# How much bigger a resize has to get before the interface points out that
+# enlarging invents pixels. Under this it is a rounding change nobody needs
+# warning about; over it the softness is visible.
+UPSCALE_NOTICE = 1.5
+
+
+def parse_aspect(text: str) -> tuple[int, int] | None:
+    """Read a shape written as ``3:2``, ``3/2`` or ``0.7667``.
+
+    Returns a pair the crop lock can take, or None when the text is not a shape.
+    A decimal becomes a pair by scaling: the canvas wants integers, and four
+    decimal places is finer than a crop box drawn by hand can express.
+    """
+    cleaned = text.replace("/", ":").strip()
+    if ":" in cleaned:
+        left, _, right = cleaned.partition(":")
+        try:
+            width, height = float(left), float(right)
+        except ValueError:
+            return None
+    else:
+        try:
+            ratio = float(cleaned)
+        except ValueError:
+            return None
+        width, height = ratio, 1.0
+    if width <= 0 or height <= 0:
+        return None
+    scale = 10000
+    return (max(1, round(width * scale)), max(1, round(height * scale)))
+
 
 ASPECTS: tuple[tuple[str, tuple[int, int] | None], ...] = (
     ("Free", None),
@@ -105,7 +178,7 @@ class ImageEditor(QWidget):
         self.themed_buttons: list[tuple[QToolButton, Callable[[], QIcon]]] = []
         self.runner = runner
         self.busy = False
-        self.mode = "crop"
+        self.mode = "edit"
         self.active_tool: str | None = None
         self.edits: list[cutout.Edit] = []
         self.dabs: list[tuple[float, float, float]] = []
@@ -115,6 +188,10 @@ class ImageEditor(QWidget):
         self.brush_index = 2
         self.soften = 0
         self.backdrop_index = 0
+        # Whether the canvas holds the preview-sized copy. Edit and Crop show
+        # the same full-size pixmap, so moving between them must not pay for a
+        # conversion whose result is already on screen.
+        self.showing_preview = False
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -126,22 +203,121 @@ class ImageEditor(QWidget):
         self.canvas.point_picked.connect(self.on_point_picked)
         self.canvas.stroke.connect(self.on_stroke)
         layout.addWidget(self.canvas, 1)
+        layout.addWidget(self.build_toolbar())
+        layout.addWidget(self.build_readout())
+        self.on_selection_changed(None)
+        self.show_mode_controls("edit")
 
-        toolbar = QFrame()
-        toolbar.setObjectName("banner")
-        row = QHBoxLayout(toolbar)
+    def build_toolbar(self) -> QFrame:
+        """One row in three zones: pinned tabs, scrolling tools, pinned commits.
+
+        Only the middle zone scrolls. Everything used to sit inside one scroll
+        area, and at the application's own default window the row wanted 1191
+        pixels against 1006 -- so the two controls past the right-hand edge were
+        Save as Copy at x=978..1099 and Cancel at x=1105..1183. Measured, not
+        guessed: the buttons that commit or abandon the user's work were the
+        ones a narrow window hid.
+
+        Pinning them costs a width floor. The editor shares a stack with the
+        preview, so its minimum applies even while it is hidden and comes out of
+        the file list's share. That is the trade: about 280 pixels of floor for
+        three controls that can never again be scrolled out of reach.
+        """
+        frame = QFrame()
+        frame.setObjectName("banner")
+        row = QHBoxLayout(frame)
         row.setContentsMargins(8, 6, 8, 6)
-        row.setSpacing(6)
+        row.setSpacing(8)
+        row.addWidget(self.build_mode_tabs())
+        row.addWidget(self.build_tool_area(), 1)
+        row.addWidget(self.build_commit_bar())
+        return frame
 
-        self.mode_group = QButtonGroup(self)
-        self.mode_group.setExclusive(True)
-        self.crop_mode_button = self.mode_chip("Crop", "crop")
-        self.cutout_mode_button = self.mode_chip("Cut out", "cutout")
-        self.crop_mode_button.setChecked(True)
-        row.addWidget(self.crop_mode_button)
-        row.addWidget(self.cutout_mode_button)
-        row.addSpacing(8)
+    def build_mode_tabs(self) -> QTabBar:
+        """The three panes, named. A tab bar, because that is what this is.
 
+        Text rather than icons, against the rest of the row: these are the only
+        labels answering which of three panes the user is in, and the accent
+        underline the stylesheet already carries for a tab bar says "you are
+        here" far better than a one-pixel border on a chip would.
+        """
+        tabs = QTabBar()
+        tabs.setDrawBase(False)
+        for mode in MODES:
+            tabs.addTab(MODE_LABELS[mode])
+        # Connected after the loop on purpose: adding the first tab emits
+        # currentChanged(0), which would run set_mode against half-built state.
+        tabs.currentChanged.connect(lambda index: self.set_mode(MODES[index]))
+        self.mode_tabs = tabs
+        return tabs
+
+    def build_tool_area(self) -> QScrollArea:
+        """The per-pane tool strip, in the only zone allowed to scroll.
+
+        Each pane owns a container rather than a list of loose controls, so the
+        spacing inside it hides with it. Spacers are layout items and cannot be
+        hidden at all, so three panes' worth would otherwise stack up in the row
+        whichever pane was showing.
+        """
+        strip = QWidget()
+        line = QHBoxLayout(strip)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(6)
+        self.mode_panels: dict[str, QWidget] = {
+            "edit": self.build_edit_tools(),
+            "crop": self.build_crop_tools(),
+            "background": self.build_background_tools(),
+        }
+        for panel in self.mode_panels.values():
+            line.addWidget(panel)
+        line.addStretch(1)
+        area = QScrollArea()
+        area.setWidget(strip)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Measured while all three panels are still visible, which is why it
+        # happens here: show_mode_controls does not run until the end of
+        # build_ui. A control hidden before this line is never accounted for and
+        # gets its bottom clipped -- that already ate the accent border off the
+        # aspect buttons once.
+        area.setFixedHeight(
+            strip.sizeHint().height() + area.horizontalScrollBar().sizeHint().height()
+        )
+        self.toolbar_area = area
+        return area
+
+    def build_commit_bar(self) -> QWidget:
+        """Save, Save as Copy and Cancel, where no window width can hide them."""
+        holder = QWidget()
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(6)
+        self.save_button = QPushButton("Save")
+        self.save_button.setObjectName("primary")
+        self.save_button.setToolTip("Overwrite the original file with these edits")
+        self.save_button.clicked.connect(self.save_over)
+        self.copy_button = QPushButton("Save as Copy")
+        self.copy_button.setToolTip("Keep the original and write a new file beside it")
+        self.copy_button.clicked.connect(self.save_copy)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.cancel)
+        for button in (self.save_button, self.copy_button, self.cancel_button):
+            line.addWidget(button)
+        return holder
+
+    def tool_panel(self, controls: list[QWidget]) -> QWidget:
+        """Wrap one pane's controls so they show and hide as a unit."""
+        holder = QWidget()
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(6)
+        for control in controls:
+            line.addWidget(control)
+        return holder
+
+    def build_edit_tools(self) -> QWidget:
+        """Turn the picture, mirror it, or set its size."""
         self.rotate_left_button = self.tool_button(
             icons.rotate_left, "Rotate left", lambda: self.rotate(-90)
         )
@@ -154,69 +330,131 @@ class ImageEditor(QWidget):
         self.flip_vertical_button = self.tool_button(
             icons.flip_vertical, "Mirror top to bottom", lambda: self.flip(False)
         )
-        row.addWidget(self.rotate_left_button)
-        row.addWidget(self.rotate_right_button)
-        row.addWidget(self.flip_horizontal_button)
-        row.addWidget(self.flip_vertical_button)
-        row.addSpacing(8)
+        self.resize_button = self.tool_button(
+            icons.resize, "Resize to given dimensions", self.open_resize
+        )
+        return self.tool_panel(
+            [
+                self.rotate_left_button,
+                self.rotate_right_button,
+                self.flip_horizontal_button,
+                self.flip_vertical_button,
+                self.resize_button,
+            ]
+        )
 
-        self.aspect_group = QButtonGroup(self)
-        self.aspect_group.setExclusive(True)
+    def build_crop_tools(self) -> QWidget:
+        """Choose a shape, draw a box, apply it."""
+        self.aspect_combo = QComboBox()
+        self.aspect_combo.setEditable(True)
+        self.aspect_combo.setToolTip(
+            "Lock the box to a shape, or type one like 3:2 or 0.7667"
+        )
+        self.aspect_combo.setFixedWidth(ASPECT_COMBO_WIDTH)
         for label, ratio in ASPECTS:
-            button = QToolButton()
-            button.setText(label)
-            button.setCheckable(True)
-            button.setToolTip(f"Lock crop to {label}")
-            button.clicked.connect(lambda checked, r=ratio: self.set_aspect(r))
-            self.aspect_group.addButton(button)
-            row.addWidget(button)
-        first = self.aspect_group.buttons()[0]
-        first.setChecked(True)
-        row.addSpacing(8)
+            self.aspect_combo.addItem(label, ratio)
+        # One combo rather than eight chips: the chips wanted 427 pixels against
+        # the combo's 116, and print work needs shapes no fixed list holds --
+        # a KDP cover is 0.7667, which none of the eight offers.
+        self.aspect_combo.activated.connect(self.on_aspect_chosen)
+        # An editable combo always has a line edit; the accessor is typed as
+        # optional because a non-editable one does not.
+        editor = self.aspect_combo.lineEdit()
+        if editor is not None:
+            editor.editingFinished.connect(self.on_aspect_typed)
 
         self.crop_button = self.tool_button(icons.crop, "Apply crop", self.apply_crop)
-        row.addWidget(self.crop_button)
-        self.clear_button = QToolButton()
-        self.clear_button.setText("Clear")
-        self.clear_button.setToolTip("Clear the selection to draw a new one")
-        self.clear_button.clicked.connect(self.canvas.clear_selection)
-        row.addWidget(self.clear_button)
+        self.clear_button = self.tool_button(
+            icons.clear_selection,
+            "Clear the selection to draw a new one",
+            self.canvas.clear_selection,
+        )
+        return self.tool_panel([self.aspect_combo, self.crop_button, self.clear_button])
+
+    def build_background_tools(self) -> QWidget:
+        """Take the background away: by model, by hand, or the watermark alone."""
+        self.subject_button = self.tool_button(
+            icons.auto_subject,
+            "Find the subject with a model and clear everything else",
+            self.remove_background_automatically,
+        )
+        self.tool_group = QButtonGroup(self)
+        self.tool_group.setExclusive(False)
+        self.wand_button = self.tool_chip(
+            icons.wand, "Magic wand: click a colour to clear its region", "wand"
+        )
+        self.eraser_button = self.tool_chip(
+            icons.eraser, "Eraser: drag to clear", "erase"
+        )
+        self.restore_button = self.tool_chip(
+            icons.restore_brush,
+            "Restore brush: drag to paint the picture back",
+            "restore",
+        )
         self.watermark_button = self.tool_button(
             icons.watermark,
             "Remove a watermark: inside the selection, or the bottom-right corner",
             self.remove_watermark,
         )
-        row.addWidget(self.watermark_button)
+        self.settings_button = self.build_settings_button()
+        self.undo_button = self.tool_button(
+            icons.undo, "Undo the last wand click or brush stroke", self.undo_edit
+        )
+        self.compare_button = self.tool_button(
+            icons.compare, "Hold to see the picture before these edits", lambda: None
+        )
+        self.compare_button.pressed.connect(lambda: self.set_comparing(True))
+        self.compare_button.released.connect(lambda: self.set_comparing(False))
+        self.backdrop_button = self.tool_button(
+            icons.backdrop,
+            "What shows through: checker, white, black, magenta",
+            self.cycle_backdrop,
+        )
+        return self.tool_panel(
+            [
+                self.subject_button,
+                self.wand_button,
+                self.eraser_button,
+                self.restore_button,
+                self.watermark_button,
+                self.settings_button,
+                self.undo_button,
+                self.compare_button,
+                self.backdrop_button,
+            ]
+        )
 
-        self.crop_controls: list[QWidget] = [
-            self.rotate_left_button,
-            self.rotate_right_button,
-            self.flip_horizontal_button,
-            self.flip_vertical_button,
-            *self.aspect_group.buttons(),
-            self.crop_button,
-            self.clear_button,
-            self.watermark_button,
-        ]
-        self.cutout_controls = self.build_cutout_tools(row)
-        row.addStretch(1)
+    def build_settings_button(self) -> QToolButton:
+        """The three cut-out numbers, behind one icon.
 
-        self.save_button = QPushButton("Save")
-        self.save_button.setObjectName("primary")
-        self.save_button.setToolTip("Overwrite the original file with these edits")
-        self.save_button.clicked.connect(self.save_over)
-        self.copy_button = QPushButton("Save as Copy")
-        self.copy_button.setToolTip("Keep the original and write a new file beside it")
-        self.copy_button.clicked.connect(self.save_copy)
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.cancel)
-        row.addWidget(self.save_button)
-        row.addWidget(self.copy_button)
-        row.addWidget(self.cancel_button)
-        layout.addWidget(self.scrolling_toolbar(toolbar))
-        layout.addWidget(self.build_readout())
-        self.on_selection_changed(None)
-        self.set_mode("crop")
+        Inline they need 453 pixels and put the row 30 over the window it has to
+        fit in; behind a menu the button is 33 whether it carries one or not.
+        """
+        button = QToolButton()
+        button.setIcon(icons.settings())
+        button.setToolTip("Tolerance, brush size and edge softening")
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        panel = QWidget()
+        form = QFormLayout(panel)
+        form.setContentsMargins(10, 8, 10, 8)
+        tolerance, self.tolerance_label = self.stepper(
+            "How close a colour has to be for the wand to take it",
+            self.step_tolerance,
+        )
+        brush, self.brush_label = self.stepper("Brush size", self.step_brush)
+        soften, self.soften_label = self.stepper(
+            "Soften the cut edge", self.step_soften
+        )
+        form.addRow("Tolerance", tolerance)
+        form.addRow("Brush", brush)
+        form.addRow("Soften", soften)
+        holder = QWidgetAction(menu)
+        holder.setDefaultWidget(panel)
+        menu.addAction(holder)
+        button.setMenu(menu)
+        self.themed_buttons.append((button, icons.settings))
+        return button
 
     def build_readout(self) -> QWidget:
         """The selection size and the last action's result, always on screen.
@@ -238,43 +476,6 @@ class ImageEditor(QWidget):
         line.addWidget(self.status_label)
         line.addStretch(1)
         return strip
-
-    def scrolling_toolbar(self, toolbar: QFrame) -> QScrollArea:
-        """Let the tool row scroll sideways instead of setting a width floor.
-
-        Fifteen controls in one non-wrapping row demand about 1100 pixels, and
-        because the editor shares a stack with the preview that floor applied
-        even while the editor was hidden -- it was the reason a narrow window
-        stole space from the file list until only two thumbnails fit per row.
-        Scrolling keeps every button reachable; clipping them would not.
-        """
-        area = QScrollArea()
-        area.setWidget(toolbar)
-        area.setWidgetResizable(True)
-        area.setFrameShape(QFrame.Shape.NoFrame)
-        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # The horizontal scrollbar is drawn inside this height, so the row has
-        # to be told to make space for it -- otherwise it eats the bottom of
-        # every button, including the accent border on the selected aspect.
-        area.setFixedHeight(
-            toolbar.sizeHint().height() + area.horizontalScrollBar().sizeHint().height()
-        )
-        self.toolbar_area = area
-        return area
-
-    def mode_chip(self, label: str, mode: str) -> QToolButton:
-        """A checkable chip that switches the pane between crop and cut out.
-
-        The existing checkable-QToolButton idiom, so the accent border the aspect
-        buttons already get applies with no new stylesheet.
-        """
-        button = QToolButton()
-        button.setText(label)
-        button.setCheckable(True)
-        button.setToolTip(f"Switch to {label.lower()}")
-        button.clicked.connect(lambda checked, m=mode: self.set_mode(m))
-        self.mode_group.addButton(button)
-        return button
 
     def stepper(
         self, tooltip: str, on_change: Callable[[int], None]
@@ -306,79 +507,6 @@ class ImageEditor(QWidget):
         line.addWidget(value)
         line.addWidget(up)
         return holder, value
-
-    def build_cutout_tools(self, row: QHBoxLayout) -> list[QWidget]:
-        """The cut-out row: three tools, three settings, undo, compare, backdrop.
-
-        Fewer controls than crop mode, deliberately. The row already only fits by
-        scrolling, so a mode that added to it would push Save off the edge.
-        """
-        self.subject_button = self.tool_button(
-            icons.auto_subject,
-            "Find the subject with a model and clear everything else",
-            self.remove_background_automatically,
-        )
-        row.addWidget(self.subject_button)
-
-        self.tool_group = QButtonGroup(self)
-        self.tool_group.setExclusive(False)
-        self.wand_button = self.tool_chip(
-            icons.wand, "Magic wand: click a colour to clear its region", "wand"
-        )
-        self.eraser_button = self.tool_chip(
-            icons.eraser, "Eraser: drag to clear", "erase"
-        )
-        self.restore_button = self.tool_chip(
-            icons.restore_brush,
-            "Restore brush: drag to paint the picture back",
-            "restore",
-        )
-        row.addWidget(self.wand_button)
-        row.addWidget(self.eraser_button)
-        row.addWidget(self.restore_button)
-
-        tolerance, self.tolerance_label = self.stepper(
-            "How close a colour has to be for the wand to take it",
-            self.step_tolerance,
-        )
-        brush, self.brush_label = self.stepper("Brush size", self.step_brush)
-        soften, self.soften_label = self.stepper(
-            "Soften the cut edge", self.step_soften
-        )
-        row.addWidget(tolerance)
-        row.addWidget(brush)
-        row.addWidget(soften)
-
-        self.undo_button = self.tool_button(
-            icons.rotate_left,
-            "Undo the last wand click or brush stroke",
-            self.undo_edit,
-        )
-        self.compare_button = self.tool_button(
-            icons.compare, "Hold to see the picture before these edits", lambda: None
-        )
-        self.compare_button.pressed.connect(lambda: self.set_comparing(True))
-        self.compare_button.released.connect(lambda: self.set_comparing(False))
-        self.backdrop_button = self.tool_button(
-            icons.backdrop,
-            "What shows through: checker, white, black, magenta",
-            self.cycle_backdrop,
-        )
-        row.addWidget(self.undo_button)
-        row.addWidget(self.compare_button)
-        row.addWidget(self.backdrop_button)
-        return [
-            self.subject_button,
-            self.wand_button,
-            self.eraser_button,
-            self.restore_button,
-            tolerance,
-            brush,
-            soften,
-            self.undo_button,
-            self.compare_button,
-            self.backdrop_button,
-        ]
 
     def tool_chip(
         self, icon_factory: Callable[[], QIcon], tooltip: str, tool: str
@@ -443,11 +571,11 @@ class ImageEditor(QWidget):
         self.dabs = []
         self.preview_source = None
         self.preview_result = None
-        self.show_mode_controls("crop")
+        self.show_mode_controls("edit")
         self.canvas.set_interaction("crop")
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
         self.update_commit_buttons()
-        self.aspect_group.buttons()[0].setChecked(True)
+        self.aspect_combo.setCurrentIndex(0)
         self.canvas.set_aspect(None)
         self.status_label.setText("")
         # Reopening the editor should start at the left of the tool row, not
@@ -455,39 +583,61 @@ class ImageEditor(QWidget):
         self.toolbar_area.horizontalScrollBar().setValue(0)
         return True
 
-    # -- cut-out mode ------------------------------------------------------
+    # -- panes -------------------------------------------------------------
 
     def show_mode_controls(self, mode: str) -> None:
-        """Swap which mode's controls are on the row, and disarm the tools.
+        """Swap which pane's tools are on the row, and disarm everything.
 
         Widget state only, no repaint: :meth:`load` sets the canvas itself right
         afterwards, and converting a 24-megapixel photograph to a pixmap costs
         about two hundred milliseconds, so doing it twice per file opened is a
         visible pause for nothing.
         """
+        if mode not in self.mode_panels:
+            raise ValueError(f"unknown mode {mode!r}")
         self.mode = mode
-        cutout_mode = mode == "cutout"
-        for control in self.crop_controls:
-            control.setVisible(not cutout_mode)
-        for control in self.cutout_controls:
-            control.setVisible(cutout_mode)
-        (self.cutout_mode_button if cutout_mode else self.crop_mode_button).setChecked(
-            True
-        )
+        for name, panel in self.mode_panels.items():
+            panel.setVisible(name == mode)
+        # Blocked because a programmatic index change re-emits currentChanged,
+        # which would call straight back into here.
+        self.mode_tabs.blockSignals(True)
+        self.mode_tabs.setCurrentIndex(MODES.index(mode))
+        self.mode_tabs.blockSignals(False)
         self.arm_tool(None)
+        # A cut-out is invisible outside its own pane but is still what Save
+        # writes, so say so rather than letting the button and the canvas
+        # disagree in silence.
+        if mode != "background" and self.edits:
+            self.status_label.setText(
+                f"{len(self.edits)} background edit(s) pending — in what Save writes"
+            )
         self.refresh_labels()
 
     def set_mode(self, mode: str) -> None:
-        """Switch modes and show what that mode should be showing."""
+        """Switch panes. No picture work is lost: only the view changes."""
         self.show_mode_controls(mode)
-        if mode == "cutout":
+        self.refresh_canvas()
+        self.update_commit_buttons()
+
+    def refresh_canvas(self) -> None:
+        """Show what this pane works on, converting only when it differs.
+
+        Background works on a preview-sized copy so re-folding the edit list on
+        every click stays immediate; the other two work on the full-size image,
+        because a crop rectangle is counted in its pixels. Edit and Crop
+        therefore show the same pixmap, and switching between them must not pay
+        two hundred milliseconds for a conversion already on screen.
+        """
+        if self.working_image is None:
+            return
+        if self.mode == "background":
             self.build_preview_source()
             self.refresh_cutout()
-        else:
-            self.canvas.set_interaction("crop")
-            if self.working_image is not None:
-                self.canvas.set_preview_pixmap(pixmap_from_pil(self.working_image))
-        self.update_commit_buttons()
+            self.showing_preview = True
+            return
+        if self.showing_preview:
+            self.canvas.set_preview_pixmap(pixmap_from_pil(self.working_image))
+            self.showing_preview = False
 
     def build_preview_source(self) -> None:
         """Take the working copy down to preview size, once per entry.
@@ -503,7 +653,13 @@ class ImageEditor(QWidget):
         self.preview_source = preview
 
     def arm_tool(self, tool: str | None) -> None:
-        """Arm one tool, or disarm the lot; pressing the armed one turns it off."""
+        """Arm one tool, or disarm the lot; pressing the armed one turns it off.
+
+        The selection goes with the change. Only the idle state draws it, so a
+        rectangle left standing while a brush is armed is live and invisible --
+        and the watermark tool, the one thing that reads it, sits in the pane
+        those brushes belong to.
+        """
         self.active_tool = None if tool == self.active_tool else tool
         for button, name in (
             (self.wand_button, "wand"),
@@ -511,10 +667,11 @@ class ImageEditor(QWidget):
             (self.restore_button, "restore"),
         ):
             button.setChecked(self.active_tool == name)
+        self.canvas.clear_selection()
         if self.active_tool is None:
-            self.canvas.set_interaction("crop" if self.mode == "crop" else "pick")
+            self.canvas.set_interaction(IDLE_INTERACTION[self.mode])
             return
-        self.canvas.set_interaction("pick" if self.active_tool == "wand" else "paint")
+        self.canvas.set_interaction(TOOL_INTERACTION[self.active_tool])
         self.canvas.set_brush_radius(BRUSH_STEPS[self.brush_index])
 
     def soften_pixels(self, image: Image.Image) -> float:
@@ -733,6 +890,59 @@ class ImageEditor(QWidget):
         self.crop_button.setEnabled(rect is not None)
         self.clear_button.setEnabled(rect is not None)
 
+    def on_aspect_chosen(self, index: int) -> None:
+        """Lock the box to a shape picked from the list."""
+        self.canvas.set_aspect(self.aspect_combo.itemData(index))
+
+    def on_aspect_typed(self) -> None:
+        """Lock the box to a shape the user typed, or say it was not one.
+
+        Print work needs shapes no fixed list holds: a KDP cover is 0.7667, and
+        none of the eight presets offers it. Both spellings are accepted because
+        both are how people write a shape down -- "3:2" from a camera, "0.7667"
+        from a page specification.
+        """
+        text = self.aspect_combo.currentText().strip()
+        if not text:
+            return
+        ratio = parse_aspect(text)
+        if ratio is None:
+            self.status_label.setText(f"{text!r} is not a shape — try 3:2 or 0.7667")
+            return
+        self.canvas.set_aspect(ratio)
+        self.status_label.setText("")
+
+    def open_resize(self) -> None:
+        """Set the picture's size in pixels, stretching or shrinking it."""
+        image = self.working_image
+        if image is None or self.busy:
+            return
+        dialog = ResizeDialog(image.width, image.height, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        width, height = dialog.chosen_size()
+        if (width, height) == (image.width, image.height):
+            return
+        self.working_image = transform.scale_image(
+            image, width=width, height=height, keep_aspect=False
+        )
+        self.after_geometry_change()
+        self.status_label.setText(f"Resized to {width} × {height}")
+
+    def after_geometry_change(self) -> None:
+        """Re-show the picture after its pixel grid changed underneath.
+
+        The selection and the preview copy both counted in the old grid, so both
+        are dropped rather than reinterpreted: a rectangle rescaled behind the
+        user's back is a box somewhere they did not put it.
+        """
+        self.preview_source = None
+        self.preview_result = None
+        self.showing_preview = True
+        self.refresh_canvas()
+        self.canvas.clear_selection()
+        self.update_commit_buttons()
+
     def set_aspect(self, ratio: tuple[int, int] | None) -> None:
         self.canvas.set_aspect(ratio)
 
@@ -915,3 +1125,80 @@ class ImageEditor(QWidget):
 
     def cancel(self) -> None:
         self.closed.emit(False)
+
+
+class ResizeDialog(QDialog):
+    """Ask for a new pixel size, offering to keep the shape."""
+
+    def __init__(self, width: int, height: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Resize")
+        self.source = (width, height)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(1, MAXIMUM_EDGE)
+        self.width_spin.setValue(width)
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(1, MAXIMUM_EDGE)
+        self.height_spin.setValue(height)
+        self.keep_ratio = QCheckBox("Keep the shape")
+        self.keep_ratio.setChecked(True)
+        form.addRow("Width", self.width_spin)
+        form.addRow("Height", self.height_spin)
+        form.addRow("", self.keep_ratio)
+        layout.addLayout(form)
+        self.note = QLabel("")
+        self.note.setObjectName("muted")
+        self.note.setWordWrap(True)
+        layout.addWidget(self.note)
+        buttons = accept_cancel("Resize")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.width_spin.valueChanged.connect(self.on_width_changed)
+        self.height_spin.valueChanged.connect(self.on_height_changed)
+        self.refresh_note()
+
+    def chosen_size(self) -> tuple[int, int]:
+        """The size the user settled on."""
+        return self.width_spin.value(), self.height_spin.value()
+
+    def on_width_changed(self, value: int) -> None:
+        """Follow the width with the height while the shape is locked."""
+        if self.keep_ratio.isChecked():
+            source_width, source_height = self.source
+            with QSignalBlocker(self.height_spin):
+                self.height_spin.setValue(
+                    max(1, round(value * source_height / source_width))
+                )
+        self.refresh_note()
+
+    def on_height_changed(self, value: int) -> None:
+        """Follow the height with the width while the shape is locked."""
+        if self.keep_ratio.isChecked():
+            source_width, source_height = self.source
+            with QSignalBlocker(self.width_spin):
+                self.width_spin.setValue(
+                    max(1, round(value * source_width / source_height))
+                )
+        self.refresh_note()
+
+    def refresh_note(self) -> None:
+        """Say what the change costs, because enlarging invents pixels.
+
+        A resize can only rearrange the detail already there. Growing a picture
+        makes a bigger file that is no sharper, and saying so once is kinder
+        than letting someone find out after they have printed it.
+        """
+        width, height = self.chosen_size()
+        source_width, source_height = self.source
+        factor = (width * height) / (source_width * source_height)
+        if factor > UPSCALE_NOTICE:
+            self.note.setText(
+                f"{factor:.1f}× the pixels of the original. Enlarging cannot add "
+                f"detail that is not there — the result will be softer."
+            )
+        else:
+            self.note.setText(f"From {source_width} × {source_height}")

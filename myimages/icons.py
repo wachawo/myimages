@@ -651,3 +651,33 @@ def auto_subject() -> QIcon:
         p.drawPath(spark)
 
     return painted(draw)
+
+
+def clear_selection() -> QIcon:
+    """A dashed box with a stroke through it: drop the box and draw again."""
+
+    def draw(p: QPainter) -> None:
+        pen = p.pen()
+        pen.setDashPattern([2.2, 2.2])
+        p.setPen(pen)
+        p.drawRect(QRectF(3.5, 5.5, 15, 11))
+        pen.setStyle(Qt.PenStyle.SolidLine)
+        p.setPen(pen)
+        p.drawLine(QPointF(5, 18), QPointF(17, 4))
+
+    return painted(draw)
+
+
+def undo() -> QIcon:
+    """An arrow curving back on itself: take the last step off again."""
+
+    def draw(p: QPainter) -> None:
+        path = QPainterPath()
+        path.moveTo(4.5, 9.5)
+        path.quadTo(12, 3.5, 17.5, 9.5)
+        path.quadTo(19.5, 13, 15, 17)
+        p.drawPath(path)
+        p.drawLine(QPointF(4.5, 9.5), QPointF(4.5, 4.5))
+        p.drawLine(QPointF(4.5, 9.5), QPointF(9.5, 9.5))
+
+    return painted(draw)
