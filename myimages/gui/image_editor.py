@@ -18,12 +18,12 @@ from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
-    QComboBox,
     QDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QProgressDialog,
@@ -93,8 +93,8 @@ TOOL_INTERACTION: dict[str, str] = {
     "restore": "paint",
 }
 
-# Wide enough for the longest shape label without stealing from the tool strip.
-ASPECT_COMBO_WIDTH = 116
+# Enough for a typed shape like 0.7667 without crowding the buttons beside it.
+ASPECT_FIELD_WIDTH = 64
 
 # A ceiling on a typed size. Past this the resize is a mistake rather than an
 # intention, and Pillow would spend a long time proving it.
@@ -344,24 +344,38 @@ class ImageEditor(QWidget):
         )
 
     def build_crop_tools(self) -> QWidget:
-        """Choose a shape, draw a box, apply it."""
-        self.aspect_combo = QComboBox()
-        self.aspect_combo.setEditable(True)
-        self.aspect_combo.setToolTip(
-            "Lock the box to a shape, or type one like 3:2 or 0.7667"
-        )
-        self.aspect_combo.setFixedWidth(ASPECT_COMBO_WIDTH)
+        """Choose a shape, draw a box, apply it.
+
+        The shapes are buttons rather than a list: a row of them shows at a
+        glance which one is on, where a list shows only the one it is showing.
+        Pressing the lit one releases the lock, so there is no "Free" entry to
+        mean "none of these" -- the buttons are their own off switch.
+        """
+        self.aspect_group = QButtonGroup(self)
+        # Not exclusive: an exclusive group will not let the checked button be
+        # unchecked, and releasing the lock by pressing it again is the point.
+        self.aspect_group.setExclusive(False)
+        self.aspect_buttons: dict[tuple[int, int], QToolButton] = {}
+        chips: list[QWidget] = []
         for label, ratio in ASPECTS:
-            self.aspect_combo.addItem(label, ratio)
-        # One combo rather than eight chips: the chips wanted 427 pixels against
-        # the combo's 116, and print work needs shapes no fixed list holds --
-        # a KDP cover is 0.7667, which none of the eight offers.
-        self.aspect_combo.activated.connect(self.on_aspect_chosen)
-        # An editable combo always has a line edit; the accessor is typed as
-        # optional because a non-editable one does not.
-        editor = self.aspect_combo.lineEdit()
-        if editor is not None:
-            editor.editingFinished.connect(self.on_aspect_typed)
+            if ratio is None:
+                continue
+            button = QToolButton()
+            button.setText(label)
+            button.setCheckable(True)
+            button.setToolTip(f"Lock the box to {label}; press again to release")
+            button.clicked.connect(lambda checked, r=ratio: self.toggle_aspect(r))
+            self.aspect_group.addButton(button)
+            self.aspect_buttons[ratio] = button
+            chips.append(button)
+
+        # Print work needs shapes no row of buttons can hold: a KDP cover is
+        # 0.7667, which is nobody's camera preset.
+        self.aspect_field = QLineEdit()
+        self.aspect_field.setPlaceholderText("3:2")
+        self.aspect_field.setFixedWidth(ASPECT_FIELD_WIDTH)
+        self.aspect_field.setToolTip("Or type a shape, like 3:2 or 0.7667")
+        self.aspect_field.editingFinished.connect(self.on_aspect_typed)
 
         self.crop_button = self.tool_button(icons.crop, "Apply crop", self.apply_crop)
         self.clear_button = self.tool_button(
@@ -369,7 +383,9 @@ class ImageEditor(QWidget):
             "Clear the selection to draw a new one",
             self.canvas.clear_selection,
         )
-        return self.tool_panel([self.aspect_combo, self.crop_button, self.clear_button])
+        return self.tool_panel(
+            [*chips, self.aspect_field, self.crop_button, self.clear_button]
+        )
 
     def build_background_tools(self) -> QWidget:
         """Take the background away: by model, by hand, or the watermark alone."""
@@ -575,7 +591,7 @@ class ImageEditor(QWidget):
         self.canvas.set_interaction("crop")
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
         self.update_commit_buttons()
-        self.aspect_combo.setCurrentIndex(0)
+        self.set_aspect_lock(None)
         self.canvas.set_aspect(None)
         self.status_label.setText("")
         # Reopening the editor should start at the left of the tool row, not
@@ -893,19 +909,26 @@ class ImageEditor(QWidget):
         self.crop_button.setEnabled(rect is not None)
         self.clear_button.setEnabled(rect is not None)
 
-    def on_aspect_chosen(self, index: int) -> None:
-        """Lock the box to a shape picked from the list."""
-        self.canvas.set_aspect(self.aspect_combo.itemData(index))
+    def toggle_aspect(self, ratio: tuple[int, int]) -> None:
+        """Lock the box to a shape, or release it if that shape was already on."""
+        already = self.canvas.aspect == ratio
+        self.set_aspect_lock(None if already else ratio)
+
+    def set_aspect_lock(self, ratio: tuple[int, int] | None) -> None:
+        """Apply a shape and show which button, if any, is holding it."""
+        self.canvas.set_aspect(ratio)
+        for locked, button in self.aspect_buttons.items():
+            button.setChecked(locked == ratio)
+        if ratio is None or ratio in self.aspect_buttons:
+            self.aspect_field.clear()
 
     def on_aspect_typed(self) -> None:
         """Lock the box to a shape the user typed, or say it was not one.
 
-        Print work needs shapes no fixed list holds: a KDP cover is 0.7667, and
-        none of the eight presets offers it. Both spellings are accepted because
-        both are how people write a shape down -- "3:2" from a camera, "0.7667"
-        from a page specification.
+        Both spellings are accepted because both are how a shape gets written
+        down: "3:2" comes off a camera, "0.7667" off a page specification.
         """
-        text = self.aspect_combo.currentText().strip()
+        text = self.aspect_field.text().strip()
         if not text:
             return
         ratio = parse_aspect(text)
@@ -913,6 +936,8 @@ class ImageEditor(QWidget):
             self.status_label.setText(f"{text!r} is not a shape — try 3:2 or 0.7667")
             return
         self.canvas.set_aspect(ratio)
+        for button in self.aspect_buttons.values():
+            button.setChecked(False)
         self.status_label.setText("")
 
     def open_resize(self) -> None:

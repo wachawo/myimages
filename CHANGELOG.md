@@ -30,8 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edit holds rotating, mirroring and a new **Resize**: set the picture's size in
   pixels, with the shape locked or free. It says when a resize would enlarge,
   because that invents pixels rather than finding detail.
-- Crop's eight fixed shapes become one list you can also type into, so shapes no
-  preset held — a print cover is 0.7667 — are reachable.
+- Crop's shapes are buttons that light when they are on, and pressing the lit
+  one releases the lock, so there is no longer a "Free" entry to mean none of
+  them. A field beside them takes a shape no button holds — a print cover is
+  0.7667, which is nobody's camera preset.
 - Background holds removing the background and removing a watermark, with the
   three cut-out settings behind one button rather than spread across the row.
 

@@ -91,41 +91,73 @@ def test_apply_crop_without_selection_is_a_noop(qtbot, make_image):
     assert editor.working_image.size == (80, 60)
 
 
-def test_the_shape_list_locks_the_canvas(qtbot, make_image):
-    """Eight chips wanted 427 pixels; the combo wants 116 and holds more."""
+def test_a_shape_button_locks_the_canvas(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
     editor.set_mode("crop")
 
-    index = next(
-        i
-        for i in range(editor.aspect_combo.count())
-        if editor.aspect_combo.itemText(i) == "1:1"
-    )
-    editor.aspect_combo.setCurrentIndex(index)
-    editor.on_aspect_chosen(index)
+    editor.toggle_aspect((1, 1))
     assert editor.canvas.aspect == (1, 1)
+    assert editor.aspect_buttons[(1, 1)].isChecked()
+
+
+def test_pressing_the_lit_shape_again_releases_the_lock(qtbot, make_image):
+    """The buttons are their own off switch, so there is no "Free" entry."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+
+    editor.toggle_aspect((4, 3))
+    assert editor.canvas.aspect == (4, 3)
+
+    editor.toggle_aspect((4, 3))
+    assert editor.canvas.aspect is None
+    assert not editor.aspect_buttons[(4, 3)].isChecked()
+
+
+def test_only_one_shape_is_lit_at_a_time(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+
+    editor.toggle_aspect((1, 1))
+    editor.toggle_aspect((16, 9))
+    assert editor.canvas.aspect == (16, 9)
+    assert editor.aspect_buttons[(16, 9)].isChecked()
+    assert not editor.aspect_buttons[(1, 1)].isChecked()
 
 
 def test_a_typed_shape_is_accepted(qtbot, make_image):
-    """Print work needs shapes the eight presets never held: a KDP cover is
-    0.7667, and typing it has to work."""
+    """A print cover is 0.7667, which is nobody's camera preset."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
     editor.set_mode("crop")
 
-    editor.aspect_combo.setCurrentText("0.7667")
+    editor.aspect_field.setText("0.7667")
     editor.on_aspect_typed()
     assert editor.canvas.aspect is not None
     width, height = editor.canvas.aspect
     assert abs(width / height - 0.7667) < 0.0001
+    assert not any(b.isChecked() for b in editor.aspect_buttons.values())
+
+
+def test_a_shape_button_clears_a_typed_one(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+    editor.aspect_field.setText("0.7667")
+    editor.on_aspect_typed()
+
+    editor.toggle_aspect((1, 1))
+    assert editor.aspect_field.text() == ""
+    assert editor.canvas.aspect == (1, 1)
 
 
 def test_a_typed_shape_that_is_not_one_says_so(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
     editor.set_mode("crop")
-    editor.aspect_combo.setCurrentText("banana")
+    editor.aspect_field.setText("banana")
     editor.on_aspect_typed()
     assert "not a shape" in editor.status_label.text()
     assert editor.canvas.aspect is None
@@ -1164,6 +1196,6 @@ def test_an_empty_shape_box_is_left_alone(qtbot, make_image):
     editor.load(media_from(make_image))
     editor.set_mode("crop")
     editor.canvas.set_aspect((3, 2))
-    editor.aspect_combo.setCurrentText("   ")
+    editor.aspect_field.setText("   ")
     editor.on_aspect_typed()
     assert editor.canvas.aspect == (3, 2)
