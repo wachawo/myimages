@@ -158,3 +158,59 @@ def test_coverage_fraction_reports_how_much_was_taken():
 
 def test_coverage_fraction_of_an_image_without_alpha_is_zero():
     assert cutout.coverage_fraction(Image.new("RGB", (10, 10))) == 0.0
+
+
+def test_a_sparse_drag_comes_out_solid_rather_than_dotted():
+    """Without bridging, the brush lays separate circles and looks broken.
+
+    Pointer events on a quick drag arrive dozens of pixels apart. Measured on an
+    800px image with the default radius, three raw events produced three
+    separate blobs; bridging them has to leave exactly one.
+    """
+    image = Image.new("RGB", (800, 200), (200, 30, 30))
+    radius = 0.02
+    raw = [(0.1, 0.5, radius), (0.35, 0.5, radius), (0.6, 0.5, radius)]
+
+    dabs = [raw[0]]
+    for point in raw[1:]:
+        dabs.extend(cutout.bridge_dabs(dabs[-1], point, 200 / 800))
+
+    result = cutout.apply_edits(
+        image, [cutout.BrushStroke(dabs=tuple(dabs), restore=False)]
+    )
+    row = [result.getpixel((x, 100))[3] for x in range(800)]
+    blobs = sum(
+        1 for x, alpha in enumerate(row) if alpha == 0 and (x == 0 or row[x - 1] != 0)
+    )
+    assert blobs == 1
+
+
+def test_bridge_dabs_leaves_a_short_step_alone():
+    """A slow drag already arrives dense; bridging must not multiply it."""
+    assert cutout.bridge_dabs((0.5, 0.5, 0.1), (0.51, 0.5, 0.1), 1.0) == (
+        (0.51, 0.5, 0.1),
+    )
+
+
+def test_bridge_dabs_ends_exactly_on_the_point_it_was_given():
+    """The last dab must be the pointer's real position, not an interpolation."""
+    bridged = cutout.bridge_dabs((0.0, 0.0, 0.02), (0.9, 0.0, 0.02), 1.0)
+    assert bridged[-1] == (0.9, 0.0, 0.02)
+    assert len(bridged) > 1
+
+
+def test_bridge_dabs_measures_the_gap_in_the_image_it_is_drawn_on():
+    """Off-square, a vertical step covers fewer pixels than a horizontal one.
+
+    Ignoring that would make a stroke down a wide crop dotted while the same
+    stroke across it came out solid.
+    """
+    wide = cutout.bridge_dabs((0.0, 0.0, 0.02), (0.0, 1.0, 0.02), 0.25)
+    square = cutout.bridge_dabs((0.0, 0.0, 0.02), (0.0, 1.0, 0.02), 1.0)
+    assert len(wide) < len(square)
+
+
+def test_bridge_dabs_stays_bounded_for_the_smallest_brush():
+    """A radius near zero must not turn one drag into an unbounded list."""
+    bridged = cutout.bridge_dabs((0.0, 0.5, 0.0), (1.0, 0.5, 0.0), 1.0)
+    assert len(bridged) <= 1 / cutout.MINIMUM_DAB_STEP + 1

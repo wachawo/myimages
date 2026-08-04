@@ -34,6 +34,9 @@ stores callables, so plugin resolution is unit-testable without a display.
 
 ## Planned
 
+- Model-based background removal, as an optional extra, refining the same edit
+  list the hand tools produce.
+- Batch background removal across a multi-selection.
 - Toolbar plugins (actions), not just viewers.
 - EXIF panel and capture-date sort.
 - Non-blocking previews for very large images (progressive/threaded decode).

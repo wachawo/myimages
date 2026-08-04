@@ -33,9 +33,17 @@ inside the app.
   and painted over with its surroundings. Draw a selection first to clean a
   mark anywhere else. The result opens in the editor, so nothing is written
   until you approve it.
+- **Remove the background**: switch the editor to **Cut out** (or use the wand
+  on the toolbar). Click a colour with the magic wand to clear its region, drag
+  the eraser to take more away and the restore brush to paint the picture back,
+  and soften the edge. Hold **Compare** to see the original, and cycle the
+  backdrop between a checkerboard, white, black and magenta to spot a leftover
+  fringe. Every step is undoable one at a time. Saving over a JPEG writes a
+  PNG beside it, since a JPEG cannot hold transparency; the button says so
+  before you press it.
 - **Right-click** a photo or a thumbnail for Copy File, Copy Filename, Copy
-  Picture, Delete, Rename, Select, Edit Image, Rotate, Convert and Remove
-  Watermark. **Rename** here renames that one file; the toolbar keeps the
+  Picture, Delete, Rename, Select, Edit Image, Rotate, Convert, Remove
+  Watermark and Remove Background. **Rename** here renames that one file; the toolbar keeps the
   pattern-based batch rename for a whole selection.
 - **Images → PDF**: combine a selection into one PDF with control over page
   quality, maximum edge and greyscale, plus an optional **target file size** the

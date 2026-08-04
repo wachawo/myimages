@@ -15,10 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Background removal in the image editor. A **Cut out** mode with a magic wand
+  (click a colour to clear its region), an eraser, a restore brush that paints
+  the original back, and a Soften control for the edge. Reachable from the
+  toolbar and from **Remove Background** on the right-click menu. Edits are
+  recorded as geometry rather than pixels, so Undo steps back one wand click or
+  one brush stroke at a time and the result is re-rendered at full resolution
+  when you save.
+- Hold **Compare** in the editor to see the picture before the cut, and cycle
+  the backdrop between a checkerboard, white, black and magenta to spot a
+  leftover fringe.
 - A checkerboard behind transparent pixels in the editor canvas, so a cut-out no
   longer looks like a very dark subject, and a brush outline that follows the
-  cursor at the size the edit will actually have. Nothing switches the canvas
-  into those modes yet.
+  cursor at the size the edit will actually have.
 
 - The mask engine behind background removal: a magic wand that clears a
   connected patch of similar colour, an eraser, a restore brush that paints the

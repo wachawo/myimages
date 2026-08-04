@@ -31,10 +31,28 @@ from PySide6.QtWidgets import (
 
 from myimages import icons
 from myimages.core.media import MediaFile
-from myimages.gui.crop_canvas import CropCanvas
+from myimages.gui.crop_canvas import BACKDROPS, CropCanvas
 from myimages.gui.task_runner import Runner, threaded_runner
-from myimages.imaging import save_policy, transform, watermark
+from myimages.imaging import cutout, save_policy, transform, watermark
 from myimages.imaging.transform import CropRect
+
+# Interactive edits run against a copy no larger than this. A wand click folds
+# the whole edit list into a fresh mask, and doing that at 6000px on every click
+# is the difference between a tool that feels immediate and one that stutters.
+# Only saving touches the full-resolution image.
+PREVIEW_EDGE = 1600
+
+# Tool settings, as [-] value [+] steppers. Ranges are what the tools can
+# usefully do rather than what the maths allows: a tolerance above 120 selects
+# most photographs in one click.
+TOLERANCE_STEP = 8
+TOLERANCE_RANGE = (0, 120)
+BRUSH_STEPS = (0.005, 0.01, 0.02, 0.04, 0.08, 0.15)
+SOFTEN_RANGE = (0, 8)
+
+# One soften step, as a fraction of the image width, so a softened edge looks
+# the same on the preview and in the file that gets written.
+SOFTEN_PER_STEP = 0.0016
 
 ASPECTS: tuple[tuple[str, tuple[int, int] | None], ...] = (
     ("Free", None),
@@ -82,6 +100,16 @@ class ImageEditor(QWidget):
         self.themed_buttons: list[tuple[QToolButton, Callable[[], QIcon]]] = []
         self.runner = runner
         self.busy = False
+        self.mode = "crop"
+        self.active_tool: str | None = None
+        self.edits: list[cutout.Edit] = []
+        self.dabs: list[tuple[float, float, float]] = []
+        self.preview_source: Image.Image | None = None
+        self.preview_result: Image.Image | None = None
+        self.tolerance = 32
+        self.brush_index = 2
+        self.soften = 0
+        self.backdrop_index = 0
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -90,6 +118,8 @@ class ImageEditor(QWidget):
         layout.setSpacing(6)
         self.canvas = CropCanvas()
         self.canvas.selection_changed.connect(self.on_selection_changed)
+        self.canvas.point_picked.connect(self.on_point_picked)
+        self.canvas.stroke.connect(self.on_stroke)
         layout.addWidget(self.canvas, 1)
 
         toolbar = QFrame()
@@ -97,6 +127,15 @@ class ImageEditor(QWidget):
         row = QHBoxLayout(toolbar)
         row.setContentsMargins(8, 6, 8, 6)
         row.setSpacing(6)
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        self.crop_mode_button = self.mode_chip("Crop", "crop")
+        self.cutout_mode_button = self.mode_chip("Cut out", "cutout")
+        self.crop_mode_button.setChecked(True)
+        row.addWidget(self.crop_mode_button)
+        row.addWidget(self.cutout_mode_button)
+        row.addSpacing(8)
 
         self.rotate_left_button = self.tool_button(
             icons.rotate_left, "Rotate left", lambda: self.rotate(-90)
@@ -143,6 +182,18 @@ class ImageEditor(QWidget):
             self.remove_watermark,
         )
         row.addWidget(self.watermark_button)
+
+        self.crop_controls: list[QWidget] = [
+            self.rotate_left_button,
+            self.rotate_right_button,
+            self.flip_horizontal_button,
+            self.flip_vertical_button,
+            *self.aspect_group.buttons(),
+            self.crop_button,
+            self.clear_button,
+            self.watermark_button,
+        ]
+        self.cutout_controls = self.build_cutout_tools(row)
         row.addStretch(1)
 
         self.save_button = QPushButton("Save")
@@ -160,6 +211,7 @@ class ImageEditor(QWidget):
         layout.addWidget(self.scrolling_toolbar(toolbar))
         layout.addWidget(self.build_readout())
         self.on_selection_changed(None)
+        self.set_mode("crop")
 
     def build_readout(self) -> QWidget:
         """The selection size and the last action's result, always on screen.
@@ -204,6 +256,129 @@ class ImageEditor(QWidget):
         )
         self.toolbar_area = area
         return area
+
+    def mode_chip(self, label: str, mode: str) -> QToolButton:
+        """A checkable chip that switches the pane between crop and cut out.
+
+        The existing checkable-QToolButton idiom, so the accent border the aspect
+        buttons already get applies with no new stylesheet.
+        """
+        button = QToolButton()
+        button.setText(label)
+        button.setCheckable(True)
+        button.setToolTip(f"Switch to {label.lower()}")
+        button.clicked.connect(lambda checked, m=mode: self.set_mode(m))
+        self.mode_group.addButton(button)
+        return button
+
+    def stepper(
+        self, tooltip: str, on_change: Callable[[int], None]
+    ) -> tuple[QWidget, QLabel]:
+        """A ``[-] value [+]`` group, and the label that shows the value.
+
+        Steppers rather than sliders: the tool row already scrolls sideways, and
+        a slider inside a scroll area swallows the wheel that the user meant for
+        the row.
+        """
+        holder = QWidget()
+        line = QHBoxLayout(holder)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(2)
+        down = QToolButton()
+        down.setText("−")
+        down.setToolTip(f"{tooltip}: less")
+        down.clicked.connect(lambda: on_change(-1))
+        value = QLabel()
+        value.setObjectName("muted")
+        value.setToolTip(tooltip)
+        value.setMinimumWidth(46)
+        value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        up = QToolButton()
+        up.setText("+")
+        up.setToolTip(f"{tooltip}: more")
+        up.clicked.connect(lambda: on_change(1))
+        line.addWidget(down)
+        line.addWidget(value)
+        line.addWidget(up)
+        return holder, value
+
+    def build_cutout_tools(self, row: QHBoxLayout) -> list[QWidget]:
+        """The cut-out row: three tools, three settings, undo, compare, backdrop.
+
+        Fewer controls than crop mode, deliberately. The row already only fits by
+        scrolling, so a mode that added to it would push Save off the edge.
+        """
+        self.tool_group = QButtonGroup(self)
+        self.tool_group.setExclusive(False)
+        self.wand_button = self.tool_chip(
+            icons.wand, "Magic wand: click a colour to clear its region", "wand"
+        )
+        self.eraser_button = self.tool_chip(
+            icons.eraser, "Eraser: drag to clear", "erase"
+        )
+        self.restore_button = self.tool_chip(
+            icons.restore_brush,
+            "Restore brush: drag to paint the picture back",
+            "restore",
+        )
+        row.addWidget(self.wand_button)
+        row.addWidget(self.eraser_button)
+        row.addWidget(self.restore_button)
+
+        tolerance, self.tolerance_label = self.stepper(
+            "How close a colour has to be for the wand to take it",
+            self.step_tolerance,
+        )
+        brush, self.brush_label = self.stepper("Brush size", self.step_brush)
+        soften, self.soften_label = self.stepper(
+            "Soften the cut edge", self.step_soften
+        )
+        row.addWidget(tolerance)
+        row.addWidget(brush)
+        row.addWidget(soften)
+
+        self.undo_button = self.tool_button(
+            icons.rotate_left,
+            "Undo the last wand click or brush stroke",
+            self.undo_edit,
+        )
+        self.compare_button = self.tool_button(
+            icons.compare, "Hold to see the picture before these edits", lambda: None
+        )
+        self.compare_button.pressed.connect(lambda: self.set_comparing(True))
+        self.compare_button.released.connect(lambda: self.set_comparing(False))
+        self.backdrop_button = self.tool_button(
+            icons.backdrop,
+            "What shows through: checker, white, black, magenta",
+            self.cycle_backdrop,
+        )
+        row.addWidget(self.undo_button)
+        row.addWidget(self.compare_button)
+        row.addWidget(self.backdrop_button)
+        return [
+            self.wand_button,
+            self.eraser_button,
+            self.restore_button,
+            tolerance,
+            brush,
+            soften,
+            self.undo_button,
+            self.compare_button,
+            self.backdrop_button,
+        ]
+
+    def tool_chip(
+        self, icon_factory: Callable[[], QIcon], tooltip: str, tool: str
+    ) -> QToolButton:
+        """A checkable cut-out tool; pressing the armed one disarms it."""
+        button = QToolButton()
+        button.setIcon(icon_factory())
+        button.setToolTip(tooltip)
+        button.setCheckable(True)
+        button.clicked.connect(lambda checked, name=tool: self.arm_tool(name))
+        self.tool_group.addButton(button)
+        self.themed_buttons.append((button, icon_factory))
+        return button
 
     def tool_button(
         self,
@@ -251,7 +426,14 @@ class ImageEditor(QWidget):
             return False
         self.media_file = media_file
         self.working_image = opened
+        self.edits = []
+        self.dabs = []
+        self.preview_source = None
+        self.preview_result = None
+        self.show_mode_controls("crop")
+        self.canvas.set_interaction("crop")
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
+        self.update_commit_buttons()
         self.aspect_group.buttons()[0].setChecked(True)
         self.canvas.set_aspect(None)
         self.status_label.setText("")
@@ -259,6 +441,174 @@ class ImageEditor(QWidget):
         # wherever it was scrolled to when it was last closed.
         self.toolbar_area.horizontalScrollBar().setValue(0)
         return True
+
+    # -- cut-out mode ------------------------------------------------------
+
+    def show_mode_controls(self, mode: str) -> None:
+        """Swap which mode's controls are on the row, and disarm the tools.
+
+        Widget state only, no repaint: :meth:`load` sets the canvas itself right
+        afterwards, and converting a 24-megapixel photograph to a pixmap costs
+        about two hundred milliseconds, so doing it twice per file opened is a
+        visible pause for nothing.
+        """
+        self.mode = mode
+        cutout_mode = mode == "cutout"
+        for control in self.crop_controls:
+            control.setVisible(not cutout_mode)
+        for control in self.cutout_controls:
+            control.setVisible(cutout_mode)
+        (self.cutout_mode_button if cutout_mode else self.crop_mode_button).setChecked(
+            True
+        )
+        self.arm_tool(None)
+        self.refresh_labels()
+
+    def set_mode(self, mode: str) -> None:
+        """Switch modes and show what that mode should be showing."""
+        self.show_mode_controls(mode)
+        if mode == "cutout":
+            self.build_preview_source()
+            self.refresh_cutout()
+        else:
+            self.canvas.set_interaction("crop")
+            if self.working_image is not None:
+                self.canvas.set_preview_pixmap(pixmap_from_pil(self.working_image))
+        self.update_commit_buttons()
+
+    def build_preview_source(self) -> None:
+        """Take the working copy down to preview size, once per entry.
+
+        Every edit re-folds the whole list into a fresh mask, so the cost of that
+        fold is paid on every click; at full resolution it is what turns an
+        immediate tool into a stuttering one.
+        """
+        if self.working_image is None:
+            return
+        preview = self.working_image.copy()
+        preview.thumbnail((PREVIEW_EDGE, PREVIEW_EDGE), Image.Resampling.LANCZOS)
+        self.preview_source = preview
+
+    def arm_tool(self, tool: str | None) -> None:
+        """Arm one tool, or disarm the lot; pressing the armed one turns it off."""
+        self.active_tool = None if tool == self.active_tool else tool
+        for button, name in (
+            (self.wand_button, "wand"),
+            (self.eraser_button, "erase"),
+            (self.restore_button, "restore"),
+        ):
+            button.setChecked(self.active_tool == name)
+        if self.active_tool is None:
+            self.canvas.set_interaction("crop" if self.mode == "crop" else "pick")
+            return
+        self.canvas.set_interaction("pick" if self.active_tool == "wand" else "paint")
+        self.canvas.set_brush_radius(BRUSH_STEPS[self.brush_index])
+
+    def soften_pixels(self, image: Image.Image) -> float:
+        """The blur radius for this image, so preview and export agree.
+
+        Stored in steps against the width rather than in pixels: a fixed pixel
+        radius that looks right on a 1600px preview is a quarter as soft on a
+        6000px original, and the exported edge would come out harder than the one
+        that was approved.
+        """
+        return self.soften * SOFTEN_PER_STEP * image.width
+
+    def refresh_cutout(self) -> None:
+        """Re-fold the edit list and show the result."""
+        if self.preview_source is None:
+            return
+        self.preview_result = cutout.apply_edits(
+            self.preview_source, self.edits, self.soften_pixels(self.preview_source)
+        )
+        self.canvas.set_preview_pixmap(pixmap_from_pil(self.preview_result))
+        self.update_commit_buttons()
+
+    def on_point_picked(self, x: float, y: float) -> None:
+        """A wand click: clear the connected patch of similar colour."""
+        if self.active_tool != "wand":
+            return
+        self.edits.append(cutout.RegionPick(x=x, y=y, tolerance=self.tolerance))
+        self.refresh_cutout()
+        self.report_coverage()
+
+    def on_stroke(self, x: float, y: float, started: bool) -> None:
+        """A brush point; ``started`` opens a new stroke rather than extending.
+
+        The gap since the previous point is filled in rather than dabbed once:
+        pointer events on a quick drag arrive dozens of pixels apart, which lays
+        a row of separate circles instead of a stroke.
+        """
+        if self.active_tool not in {"erase", "restore"} or self.preview_source is None:
+            return
+        restore = self.active_tool == "restore"
+        dab = (x, y, BRUSH_STEPS[self.brush_index])
+        if started or not self.dabs:
+            self.dabs = [dab]
+        else:
+            aspect = self.preview_source.height / self.preview_source.width
+            self.dabs.extend(cutout.bridge_dabs(self.dabs[-1], dab, aspect))
+        stroke = cutout.BrushStroke(dabs=tuple(self.dabs), restore=restore)
+        if started or len(self.dabs) == 1:
+            self.edits.append(stroke)
+        else:
+            self.edits[-1] = stroke
+        self.refresh_cutout()
+
+    def report_coverage(self) -> None:
+        """Warn when a wand click took nearly the whole picture."""
+        if self.preview_result is None:
+            return
+        taken = cutout.coverage_fraction(self.preview_result)
+        if taken > 0.9:
+            self.status_label.setText("That took almost everything — lower Tolerance")
+        else:
+            self.status_label.setText(f"{taken * 100:.0f}% cleared")
+
+    def undo_edit(self) -> None:
+        """Drop the last wand click or brush stroke."""
+        if not self.edits:
+            self.status_label.setText("Nothing to undo")
+            return
+        self.edits.pop()
+        self.dabs = []
+        self.refresh_cutout()
+        self.status_label.setText("")
+
+    def set_comparing(self, comparing: bool) -> None:
+        """While held, show the picture as it was before any of these edits."""
+        if self.preview_source is None:
+            return
+        shown = self.preview_source if comparing else self.preview_result
+        if shown is not None:
+            self.canvas.set_preview_pixmap(pixmap_from_pil(shown))
+
+    def cycle_backdrop(self) -> None:
+        """Step through what shows behind the parts that were taken away."""
+        self.backdrop_index = (self.backdrop_index + 1) % len(BACKDROPS)
+        self.canvas.set_backdrop(BACKDROPS[self.backdrop_index])
+
+    def step_tolerance(self, delta: int) -> None:
+        low, high = TOLERANCE_RANGE
+        self.tolerance = min(high, max(low, self.tolerance + delta * TOLERANCE_STEP))
+        self.refresh_labels()
+
+    def step_brush(self, delta: int) -> None:
+        self.brush_index = min(len(BRUSH_STEPS) - 1, max(0, self.brush_index + delta))
+        self.canvas.set_brush_radius(BRUSH_STEPS[self.brush_index])
+        self.refresh_labels()
+
+    def step_soften(self, delta: int) -> None:
+        low, high = SOFTEN_RANGE
+        self.soften = min(high, max(low, self.soften + delta))
+        self.refresh_labels()
+        self.refresh_cutout()
+
+    def refresh_labels(self) -> None:
+        """Show the three settings' current values."""
+        self.tolerance_label.setText(str(self.tolerance))
+        self.brush_label.setText(f"{BRUSH_STEPS[self.brush_index] * 100:.1f}%")
+        self.soften_label.setText(str(self.soften))
 
     def on_selection_changed(self, rect: CropRect | None) -> None:
         if rect is not None:
@@ -373,6 +723,36 @@ class ImageEditor(QWidget):
             return False
         return True
 
+    def result_image(self) -> Image.Image | None:
+        """What Save would write: the working copy, or the folded edit list."""
+        if self.working_image is None:
+            return None
+        if self.mode != "cutout" or not self.edits:
+            return self.working_image
+        return cutout.apply_edits(
+            self.working_image, self.edits, self.soften_pixels(self.working_image)
+        )
+
+    def update_commit_buttons(self) -> None:
+        """Stop the commit buttons lying about where they will write.
+
+        A cut-out cannot go back over a JPEG, so Save writes a sibling PNG. The
+        button has to say so before it is pressed, not afterwards -- it closes
+        the editor, so there is no afterwards the user would see.
+        """
+        plan = self.save_plan(copy=False)
+        if plan is not None and plan.retargeted:
+            self.save_button.setText(
+                f"Save as {plan.destination.suffix.lstrip('.').upper()}"
+            )
+            self.save_button.setToolTip(
+                f"The original cannot hold transparency, so this writes "
+                f"{plan.destination.name} and leaves it untouched"
+            )
+            return
+        self.save_button.setText("Save")
+        self.save_button.setToolTip("Overwrite the original file with these edits")
+
     def save_plan(self, copy: bool) -> save_policy.SavePlan | None:
         """Where the working image would be written, or None with nothing open.
 
@@ -382,7 +762,11 @@ class ImageEditor(QWidget):
         """
         if self.media_file is None or self.working_image is None:
             return None
-        transparent = save_policy.has_transparency(self.working_image)
+        # The preview carries the same transparency as the full-resolution
+        # result and is already computed, so the button can be relabelled on
+        # every stroke without re-folding the original.
+        candidate = self.preview_result if self.mode == "cutout" else self.working_image
+        transparent = candidate is not None and save_policy.has_transparency(candidate)
         path = Path(self.media_file.path)
         if copy:
             return save_policy.copy_plan(path, transparent)
@@ -390,7 +774,7 @@ class ImageEditor(QWidget):
 
     def commit(self, copy: bool) -> None:
         """Write the result and close, staying open if the write failed."""
-        image = self.working_image
+        image = self.result_image()
         plan = self.save_plan(copy)
         if (
             image is not None

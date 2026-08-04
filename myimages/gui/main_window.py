@@ -292,6 +292,9 @@ class MainWindow(QMainWindow):
         self.action_edit = self.tool_button(
             icons.edit_image, "Edit Image", self.open_edit
         )
+        self.action_cutout = self.tool_button(
+            icons.wand, "Remove the background", self.open_cutout_editor
+        )
         self.action_convert = self.tool_button(
             icons.convert, "Convert image format", self.open_convert
         )
@@ -519,6 +522,7 @@ class MainWindow(QMainWindow):
             f for f in self.file_list.selected_files() if f.kind is MediaKind.IMAGE
         ]
         self.action_edit.setEnabled(current_is_image)
+        self.action_cutout.setEnabled(current_is_image)
         self.action_convert.setEnabled(bool(images_selected) or current_is_image)
         self.action_pdf.setEnabled(bool(images_selected) or current_is_image)
         self.action_gif.setEnabled(len(images_selected) >= 2)
@@ -579,6 +583,7 @@ class MainWindow(QMainWindow):
             ("Rotate", "", self.rotate_current_file, is_image),
             ("Convert", "", self.open_convert, is_image),
             ("Remove Watermark", "", self.open_watermark_editor, is_image),
+            ("Remove Background", "", self.open_cutout_editor, is_image),
         )
         for label, hint, handler, enabled in entries:
             action = menu.addAction(label)
@@ -626,6 +631,15 @@ class MainWindow(QMainWindow):
             return
         self.open_edit()
         self.editor.remove_watermark()
+
+    def open_cutout_editor(self) -> None:
+        """Open the editor already switched to cutting the background away."""
+        if self.current is None or self.current.kind is not MediaKind.IMAGE:
+            return
+        if self.preview_area.currentWidget() is not self.editor:
+            self.open_edit()
+        if self.preview_area.currentWidget() is self.editor:
+            self.editor.set_mode("cutout")
 
     # -- favourites & deletion --------------------------------------------
 
