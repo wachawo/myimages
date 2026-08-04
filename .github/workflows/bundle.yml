@@ -5,6 +5,15 @@ name: Bundle
 # The release workflow builds its own copies; this one exists to be run by hand.
 on:
   workflow_dispatch:
+  # Also on any pull request that touches packaging, so a change there cannot
+  # merge unproven. Both Linux artifacts stayed broken from the first commit
+  # because nothing ever built them; scoping by path keeps a fifteen-minute
+  # build off the pull requests that do not change how anything is packaged.
+  pull_request:
+    paths:
+      - "packaging/**"
+      - ".github/workflows/bundle.yml"
+      - "pyproject.toml"
 
 permissions:
   contents: read
