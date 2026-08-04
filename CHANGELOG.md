@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `myimages --version`.
+- A macOS build: `myImages-<ver>-macos-<arch>.dmg`, one for Apple Silicon and
+  one for Intel. It is ad-hoc signed but not notarised, so the README explains
+  the one command that clears the quarantine flag.
 - A Windows build: unpack `myImages-<ver>-windows-x64.zip` and run
   `myimages.exe`. It carries its own Python, so nothing needs installing first.
   It is unsigned, and the README says how to get past SmartScreen.
