@@ -839,10 +839,16 @@ class ImageEditor(QWidget):
         return True
 
     def result_image(self) -> Image.Image | None:
-        """What Save would write: the working copy, or the folded edit list."""
+        """What Save would write: the working copy, or the folded edit list.
+
+        The edit list decides, not the mode. A mode says which controls are on
+        screen; the cut-out a user made is their work either way, and gating on
+        the mode meant switching away from it silently threw that work out --
+        Save then rewrote the original with the untouched picture.
+        """
         if self.working_image is None:
             return None
-        if self.mode != "cutout" or not self.edits:
+        if not self.edits:
             return self.working_image
         return cutout.apply_edits(
             self.working_image, self.edits, self.soften_pixels(self.working_image)
@@ -879,8 +885,10 @@ class ImageEditor(QWidget):
             return None
         # The preview carries the same transparency as the full-resolution
         # result and is already computed, so the button can be relabelled on
-        # every stroke without re-folding the original.
-        candidate = self.preview_result if self.mode == "cutout" else self.working_image
+        # every stroke without re-folding the original. Keyed on the edit list
+        # rather than the mode, so the button keeps telling the truth after the
+        # user switches away from the tools that made it.
+        candidate = self.preview_result if self.edits else self.working_image
         transparent = candidate is not None and save_policy.has_transparency(candidate)
         path = Path(self.media_file.path)
         if copy:

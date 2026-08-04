@@ -925,3 +925,50 @@ def test_a_model_run_that_keeps_the_subject_reports_the_share(
     monkeypatch.setattr("myimages.imaging.segment.subject_mask", lambda image: half)
     editor.remove_background_automatically()
     assert editor.status_label.text().endswith("% cleared")
+
+
+def test_a_cutout_survives_switching_away_from_the_cutout_tools(qtbot, tmp_path: Path):
+    """Switching modes used to throw the user's work away without saying so.
+
+    The edits stayed in the list while result_image() ignored them, so Save
+    rewrote the original with the untouched picture: the cut-out vanished and
+    the JPEG was re-encoded for nothing.
+    """
+    path = tmp_path / "shot.jpg"
+    picture = Image.new("RGB", (200, 150), (200, 30, 30))
+    picture.paste((30, 30, 200), (100, 0, 200, 150))
+    picture.save(path, quality=95)
+
+    editor = make_editor(qtbot)
+    editor.load(build_media_file(path))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.25, 0.5)
+    assert editor.save_button.text() == "Save as PNG"
+
+    editor.set_mode("crop")
+    assert editor.save_button.text() == "Save as PNG"
+    plan = editor.save_plan(copy=False)
+    assert plan is not None and plan.destination.name == "shot.png"
+
+    original = path.read_bytes()
+    editor.save_over()
+    assert path.read_bytes() == original
+    written = tmp_path / "shot.png"
+    assert written.exists()
+    assert Image.open(written).convert("RGBA").getchannel("A").getextrema()[0] == 0
+
+
+def test_the_result_follows_the_edits_not_the_mode(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+
+    editor.set_mode("crop")
+    result = editor.result_image()
+    assert result is not None and result.mode == "RGBA"
+
+    editor.undo_edit()
+    assert editor.result_image() is editor.working_image

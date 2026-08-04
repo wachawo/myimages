@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Switching away from the cut-out tools silently discarded the cut-out. The
+  edits stayed in the list while the editor ignored them, so Save rewrote the
+  original with the untouched picture — the work vanished and a JPEG was
+  re-encoded for nothing. What Save writes now follows the edits rather than
+  which set of controls happens to be on screen.
 - The application icon now appears in the taskbar. The icon was always being
   published; what was missing was the window's identity — it told GTK shells,
   KDE and Wayland that it was "python3", so a panel matched it to the
