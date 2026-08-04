@@ -119,7 +119,7 @@ def has_transparency(image: Image.Image) -> bool:
         return False
     # getextrema() is typed as a union because it returns one pair per band; a
     # single extracted channel always yields exactly one pair.
-    lowest, _highest = cast("tuple[int, int]", image.getchannel("A").getextrema())
+    lowest, highest = cast("tuple[int, int]", image.getchannel("A").getextrema())
     return lowest < 255
 
 

@@ -37,7 +37,7 @@ def alpha_values(path: Path) -> set[int]:
     """
     reopened = Image.open(path).convert("RGBA")
     counted = reopened.getchannel("A").getcolors(maxcolors=256) or []
-    return {value for _count, value in counted}
+    return {value for count, value in counted}
 
 
 def test_alpha_safe_suffixes_keep_transparency(tmp_path):

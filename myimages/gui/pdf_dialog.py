@@ -125,7 +125,7 @@ class PdfDialog(QDialog):
         self.target_spin.setEnabled(jpeg)
 
     def browse_path(self) -> None:
-        chosen, _filter = QFileDialog.getSaveFileName(
+        chosen, chosen_filter = QFileDialog.getSaveFileName(
             self, "Save PDF", self.path_edit.text(), "PDF files (*.pdf)"
         )
         if chosen:

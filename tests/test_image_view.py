@@ -86,7 +86,7 @@ def test_zoom_by_beyond_max_is_a_noop(qtbot, make_image):
 def test_zoom_out_never_goes_below_fit(qtbot, make_image):
     view = load_view(qtbot, make_image)
     fit = view.current_scale()
-    for _ in range(5):
+    for step in range(5):
         view.zoom_out()
     assert view.current_scale() == pytest.approx(fit)
 

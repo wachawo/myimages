@@ -95,6 +95,11 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]
+# B007 asks for an unused loop variable to be renamed with a leading underscore.
+# This project forbids that spelling outright, so the check and the house rule
+# cannot both be satisfied; the rule wins and the check is off. Nothing else in
+# the B family is affected.
+ignore = ["B007"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]

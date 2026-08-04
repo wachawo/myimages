@@ -127,7 +127,7 @@ def inpaint(region: Image.Image, mask: Image.Image) -> Image.Image:
     known = region.convert("RGB")
     filled = known
     for radius in blur_schedule(growth_size(region)):
-        for _ in range(PASSES_PER_RADIUS):
+        for pass_number in range(PASSES_PER_RADIUS):
             filled = Image.composite(
                 filled.filter(ImageFilter.GaussianBlur(radius)), known, mask
             )

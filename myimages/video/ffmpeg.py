@@ -84,7 +84,7 @@ def run_ffmpeg(
 def parse_frame_rate(text: str) -> float:
     """Turn ffprobe's ``"num/den"`` frame-rate string into frames per second."""
     if "/" in text:
-        numerator, _, denominator = text.partition("/")
+        numerator, separator, denominator = text.partition("/")
         try:
             den = float(denominator)
             return float(numerator) / den if den else 0.0

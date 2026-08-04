@@ -426,7 +426,7 @@ def test_the_editor_unlocks_after_a_failed_operation(qtbot, make_image, monkeypa
     )
     monkeypatch.setattr(
         "myimages.imaging.watermark.remove_watermark",
-        lambda *a, **k: (_ for _ in ()).throw(ValueError("inpaint exploded")),
+        lambda *a, **k: (item for item in ()).throw(ValueError("inpaint exploded")),
     )
     editor.remove_watermark()
 
@@ -616,7 +616,7 @@ def test_the_backdrop_button_cycles_through_every_backdrop(qtbot, make_image):
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
     seen = []
-    for _ in range(len(cc.BACKDROPS) + 1):
+    for step in range(len(cc.BACKDROPS) + 1):
         seen.append(editor.canvas.backdrop)
         editor.cycle_backdrop()
     assert seen[: len(cc.BACKDROPS)] == list(cc.BACKDROPS)
@@ -628,21 +628,21 @@ def test_the_steppers_stay_inside_their_ranges(qtbot, make_image):
     editor.load(media_from(make_image))
     editor.set_mode("cutout")
 
-    for _ in range(40):
+    for step in range(40):
         editor.step_tolerance(-1)
     assert editor.tolerance == 0
-    for _ in range(40):
+    for step in range(40):
         editor.step_tolerance(1)
     assert editor.tolerance == 120
 
-    for _ in range(20):
+    for step in range(20):
         editor.step_brush(-1)
     assert editor.brush_index == 0
-    for _ in range(20):
+    for step in range(20):
         editor.step_brush(1)
     assert editor.brush_index == len(ie.BRUSH_STEPS) - 1
 
-    for _ in range(20):
+    for step in range(20):
         editor.step_soften(1)
     assert editor.soften == 8
     assert editor.soften_label.text() == "8"

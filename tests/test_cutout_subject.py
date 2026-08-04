@@ -18,7 +18,9 @@ def gradient_mask(size: tuple[int, int] = (64, 64)) -> Image.Image:
     """A left-to-right ramp standing in for a model result."""
     mask = Image.new("L", size)
     width, height = size
-    mask.putdata([x * 255 // (width - 1) for _ in range(height) for x in range(width)])
+    mask.putdata(
+        [x * 255 // (width - 1) for row in range(height) for x in range(width)]
+    )
     return mask
 
 

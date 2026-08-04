@@ -81,7 +81,7 @@ class GifFromFramesDialog(QDialog):
         layout.addWidget(buttons)
 
     def browse_path(self) -> None:
-        chosen, _filter = QFileDialog.getSaveFileName(
+        chosen, chosen_filter = QFileDialog.getSaveFileName(
             self, "Save GIF", self.path_edit.text(), "GIF files (*.gif)"
         )
         if chosen:

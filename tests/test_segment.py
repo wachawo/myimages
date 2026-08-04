@@ -217,7 +217,7 @@ def test_two_attempts_use_distinct_temporary_names(
             names.extend(item.name for item in destination.parent.glob("*.part"))
             return super().read(size)
 
-    for _ in range(2):
+    for attempt in range(2):
         with pytest.raises(segment.SegmentationUnavailable):
             segment.download_model(opener=lambda url: RecordingResponse(b"wrong"))
 

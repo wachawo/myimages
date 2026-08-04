@@ -130,7 +130,7 @@ class FolderMonitor(QObject):
         # os.walk hands back sub-directory names directly, so a folder holding
         # a hundred thousand files is never stat-ed one entry at a time just to
         # find the handful of directories inside it.
-        for root, subdirectories, _files in os.walk(self.folder):
+        for root, subdirectories, files in os.walk(self.folder):
             for name in subdirectories:
                 directories.append(Path(root) / name)
                 if len(directories) >= MAX_WATCHED_DIRECTORIES:

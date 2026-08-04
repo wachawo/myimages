@@ -1472,7 +1472,7 @@ def test_stepping_through_photos_does_not_hoard_them(
     win = make_window(qtbot, gui_settings)
     load_gallery(win, image_dir)
 
-    for _ in range(2):
+    for step in range(2):
         win.file_list.step(1)
 
     assert len(win.file_list.selected_files()) == 1
@@ -1518,7 +1518,7 @@ def test_switching_view_mode_keeps_the_photo_that_is_open(
     win.file_list.step(2)
     opened = win.current.name
 
-    for _ in range(3):  # grid -> list -> table -> grid
+    for step in range(3):  # grid -> list -> table -> grid
         win.file_list.cycle_view_mode()
         assert win.current.name == opened
 

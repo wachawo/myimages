@@ -91,7 +91,7 @@ def test_populate_checks_extras_only(qtbot, tmp_path):
 
 
 def test_populate_no_duplicates_status(qtbot, tmp_path):
-    files, _paths = build_unique_files(tmp_path)
+    files, paths = build_unique_files(tmp_path)
     dialog = DuplicatesDialog(files, runner=synchronous_runner)
     qtbot.addWidget(dialog)
     dialog.populate(dialog.scan_now())
@@ -116,7 +116,7 @@ def test_populate_missing_file_shows_dash(qtbot, tmp_path):
 
 
 def test_start_scan_populates_synchronously(qtbot, tmp_path):
-    files, _paths = build_dupe_files(tmp_path)
+    files, paths = build_dupe_files(tmp_path)
     dialog = DuplicatesDialog(files, runner=synchronous_runner)
     qtbot.addWidget(dialog)
     dialog.start_scan()
@@ -126,7 +126,7 @@ def test_start_scan_populates_synchronously(qtbot, tmp_path):
 
 
 def test_on_scan_failed_sets_status(qtbot, tmp_path):
-    files, _paths = build_unique_files(tmp_path)
+    files, paths = build_unique_files(tmp_path)
     dialog = DuplicatesDialog(files, runner=synchronous_runner)
     qtbot.addWidget(dialog)
     dialog.scan_button.setEnabled(False)
@@ -158,7 +158,7 @@ def test_delete_checked_unlinks_emits_and_rescans(qtbot, silence_dialogs, tmp_pa
 
 
 def test_delete_checked_nothing_checked(qtbot, tmp_path):
-    files, _paths = build_unique_files(tmp_path)
+    files, paths = build_unique_files(tmp_path)
     dialog = DuplicatesDialog(
         files, runner=synchronous_runner, delete_function=unlink_all
     )
@@ -186,7 +186,7 @@ def test_delete_checked_declined_keeps_files(qtbot, tmp_path, monkeypatch):
 
 
 def test_constructor_accepts_media_file_list(qtbot, tmp_path):
-    files, _paths = build_dupe_files(tmp_path)
+    files, paths = build_dupe_files(tmp_path)
     assert all(isinstance(f, MediaFile) for f in files)
     dialog = DuplicatesDialog(files, runner=synchronous_runner)
     qtbot.addWidget(dialog)
