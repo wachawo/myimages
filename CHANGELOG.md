@@ -58,6 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Debian package and the AppImage now work. Both carried a virtualenv whose
+  launcher pointed at a build directory that no longer existed, and neither
+  contained a Python interpreter at all, so the installed command died with
+  "bad interpreter". Both are now built from one frozen bundle that carries its
+  own runtime.
 - Bundled plugins are found in packaged builds. The loader scanned for `.py`
   files on disk, which a packaged build does not have, so the 3D preview
   silently disappeared from every artifact while working from a source
