@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Screenshots of the interface in the README, and `scripts/make_demo_shots.py`
+  that regenerates them from the real application so they cannot drift away
+  from what it looks like.
+
+### Fixed
+
+- The duplicate finder reported an identical pair twice — once as identical
+  bytes and again as visually similar — pre-checked its extra copy in both, and
+  handed the same path to the deleter twice.
+
 ### Changed
 
 - The editor is now three panes — **Edit**, **Crop** and **Background** — chosen

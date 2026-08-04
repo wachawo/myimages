@@ -604,6 +604,9 @@ class ImageEditor(QWidget):
         self.mode_tabs.setCurrentIndex(MODES.index(mode))
         self.mode_tabs.blockSignals(False)
         self.arm_tool(None)
+        # The selection readout belongs to Crop. Left visible elsewhere it sits
+        # there reading "No selection" next to a number about something else.
+        self.size_label.setVisible(mode == "crop")
         # A cut-out is invisible outside its own pane but is still what Save
         # writes, so say so rather than letting the button and the canvas
         # disagree in silence.

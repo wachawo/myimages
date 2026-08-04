@@ -191,3 +191,35 @@ def test_constructor_accepts_media_file_list(qtbot, tmp_path):
     dialog = DuplicatesDialog(files, runner=synchronous_runner)
     qtbot.addWidget(dialog)
     assert dialog.status_label.text() == "Press Scan to look for duplicates."
+
+
+def test_identical_files_are_reported_once_not_twice(qtbot, tmp_path):
+    """Two identical files are also visually identical.
+
+    Running both passes over everything reported such a pair as "identical
+    bytes" AND again as "visually similar", pre-checked its extra copy in both
+    groups, and handed the same path to the deleter twice. The tests missed it
+    because their fixtures are .mp4, which the perceptual pass skips.
+    """
+    from PIL import Image
+
+    from myimages.core.media import build_media_file
+
+    first = tmp_path / "a.png"
+    Image.new("RGB", (64, 64), (200, 90, 40)).save(first)
+    second = tmp_path / "b.png"
+    second.write_bytes(first.read_bytes())
+
+    dialog = DuplicatesDialog(
+        [build_media_file(first), build_media_file(second)], runner=synchronous_runner
+    )
+    qtbot.addWidget(dialog)
+    groups = dialog.scan_now()
+
+    assert len(groups) == 1
+    assert groups[0].reason.lower().startswith("identical")
+
+    dialog.populate(groups)
+    checked = dialog.checked_paths()
+    assert len(checked) == 1
+    assert len(set(checked)) == len(checked)

@@ -87,10 +87,19 @@ class DuplicatesDialog(QDialog):
         layout.addWidget(buttons)
 
     def scan_now(self) -> list[DuplicateGroup]:
-        """Compute duplicate groups synchronously (used by tests and the runner)."""
+        """Compute duplicate groups synchronously (used by tests and the runner).
+
+        The perceptual pass never sees the files the byte comparison already
+        grouped. Two identical files are also visually identical, so running
+        both over everything reported each such pair twice, pre-checked its
+        extra copy in both groups, and handed the same path to the deleter
+        twice over.
+        """
         exact = duplicates.find_exact_duplicates(self.files)
+        grouped = {path for group in exact for path in group.paths}
+        remaining = [media for media in self.files if media.path not in grouped]
         similar = duplicates.find_similar_images(
-            self.files, max_distance=self.distance_spin.value()
+            remaining, max_distance=self.distance_spin.value()
         )
         return exact + similar
 

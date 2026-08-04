@@ -10,6 +10,18 @@ The runtime core is deliberately tiny — **PySide6 + Pillow**. Everything else
 (ffmpeg for video, trash support, HEIC) is optional and can be installed from
 inside the app.
 
+![The gallery, with a photograph open](https://raw.githubusercontent.com/wachawo/myimages/main/demo/gallery.webp)
+
+Cropping to a locked shape, and cutting a background away by hand:
+
+![Crop mode](https://raw.githubusercontent.com/wachawo/myimages/main/demo/editor-crop.webp)
+
+![Background mode](https://raw.githubusercontent.com/wachawo/myimages/main/demo/editor-cutout.webp)
+
+Regenerate these with `python scripts/make_demo_shots.py` — they are grabbed
+from the real application against a folder of sample photographs the script
+paints, so they cannot drift away from what it actually looks like.
+
 ## Features
 
 - **Browse** a folder, optionally including its sub-folders. The list keeps
