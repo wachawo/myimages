@@ -116,10 +116,10 @@ def test_show_media_none_shows_message_and_hides_controls(qtbot):
     assert pane.current_media is None
     assert pane.stack.currentWidget() is pane.message_label
     assert pane.message_label.text() == "Select a file to preview"
-    assert not pane.zoom_in_button.isVisibleTo(pane)
-    assert not pane.zoom_out_button.isVisibleTo(pane)
-    assert not pane.fit_button.isVisibleTo(pane)
-    assert not pane.play_button.isVisibleTo(pane)
+    assert not pane.zoom_in_button.isVisibleTo(pane.controls_bar)
+    assert not pane.zoom_out_button.isVisibleTo(pane.controls_bar)
+    assert not pane.fit_button.isVisibleTo(pane.controls_bar)
+    assert not pane.play_button.isVisibleTo(pane.controls_bar)
 
 
 def test_show_media_image_shows_image_view_and_image_controls(qtbot, media_file):
@@ -128,10 +128,10 @@ def test_show_media_image_shows_image_view_and_image_controls(qtbot, media_file)
     assert pane.current_media is media_file
     assert pane.stack.currentWidget() is pane.image_view
     assert pane.image_view.has_image()
-    assert pane.zoom_in_button.isVisibleTo(pane)
-    assert pane.zoom_out_button.isVisibleTo(pane)
-    assert pane.fit_button.isVisibleTo(pane)
-    assert not pane.play_button.isVisibleTo(pane)
+    assert pane.zoom_in_button.isVisibleTo(pane.controls_bar)
+    assert pane.zoom_out_button.isVisibleTo(pane.controls_bar)
+    assert pane.fit_button.isVisibleTo(pane.controls_bar)
+    assert not pane.play_button.isVisibleTo(pane.controls_bar)
 
 
 def test_show_media_unreadable_image_shows_error_message(qtbot, tmp_path):
@@ -151,8 +151,8 @@ def test_show_media_video_runs_update_controls(qtbot, tmp_path):
     pane.show_media(video_media(tmp_path))
     # update_controls(VIDEO) ran: play visible iff the backend is present,
     # and the image-only controls are always hidden for video.
-    assert pane.play_button.isVisibleTo(pane) is VIDEO_BACKEND_AVAILABLE
-    assert not pane.zoom_in_button.isVisibleTo(pane)
+    assert pane.play_button.isVisibleTo(pane.controls_bar) is VIDEO_BACKEND_AVAILABLE
+    assert not pane.zoom_in_button.isVisibleTo(pane.controls_bar)
     if VIDEO_BACKEND_AVAILABLE:
         assert pane.stack.currentWidget() is pane.video_widget
 
@@ -195,8 +195,8 @@ def test_plugin_widget_is_shown_then_cleared_next_time(qtbot, media_file):
     assert pane.stack.currentWidget() is label
     assert label.text() == str(media_file.path)
     # A plugin view is not an image or video, so all media controls are hidden.
-    assert not pane.play_button.isVisibleTo(pane)
-    assert not pane.zoom_in_button.isVisibleTo(pane)
+    assert not pane.play_button.isVisibleTo(pane.controls_bar)
+    assert not pane.zoom_in_button.isVisibleTo(pane.controls_bar)
 
     # The next show_media call clears the previous plugin widget.
     pane.show_media(None)
@@ -486,3 +486,52 @@ def test_every_stacked_view_relays_a_right_click(qtbot):
         view.customContextMenuRequested.emit(QPoint(1, 1))
 
     assert len(seen) == len(views)
+
+
+def test_the_viewing_controls_stay_off_the_picture_until_the_pointer_arrives(
+    qtbot, make_image
+):
+    """A photograph is the point of the window; an occasional control should
+    not cover part of it the rest of the time."""
+    from myimages.core.media import build_media_file
+
+    pane = PreviewPane()
+    qtbot.addWidget(pane)
+    pane.show_media(build_media_file(make_image()))
+    # isVisibleTo rather than isVisible: the pane itself was never shown, and a
+    # child of a hidden parent reports invisible whatever it was set to.
+    assert not pane.controls_bar.isVisibleTo(pane)
+
+    pane.reveal_controls(True)
+    assert pane.controls_bar.isVisibleTo(pane)
+
+    pane.reveal_controls(False)
+    assert not pane.controls_bar.isVisibleTo(pane)
+
+
+def test_nothing_appears_over_a_file_with_no_controls(qtbot):
+    """A strip of dead buttons fading in over an empty pane reads as a fault."""
+    pane = PreviewPane()
+    qtbot.addWidget(pane)
+    pane.show_media(None)
+    pane.reveal_controls(True)
+    assert not pane.controls_bar.isVisibleTo(pane)
+
+
+def test_the_pointer_arriving_and_leaving_drives_the_controls(qtbot, make_image):
+    """The handlers are two lines each, and they are the whole gesture."""
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QEnterEvent
+
+    from myimages.core.media import build_media_file
+
+    pane = PreviewPane()
+    qtbot.addWidget(pane)
+    pane.show_media(build_media_file(make_image()))
+
+    arrive = QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
+    pane.enterEvent(arrive)
+    assert pane.controls_bar.isVisibleTo(pane)
+
+    pane.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert not pane.controls_bar.isVisibleTo(pane)

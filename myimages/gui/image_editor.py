@@ -209,7 +209,7 @@ class ImageEditor(QWidget):
         self.show_mode_controls("edit")
 
     def build_toolbar(self) -> QFrame:
-        """One row in three zones: pinned tabs, scrolling tools, pinned commits.
+        """Two rows: the panes on top, everything that acts on one underneath.
 
         Only the middle zone scrolls. Everything used to sit inside one scroll
         area, and at the application's own default window the row wanted 1191
@@ -221,16 +221,27 @@ class ImageEditor(QWidget):
         Pinning them costs a width floor. The editor shares a stack with the
         preview, so its minimum applies even while it is hidden and comes out of
         the file list's share. That is the trade: about 280 pixels of floor for
-        three controls that can never again be scrolled out of reach.
+        three controls that can never again be scrolled out of reach. Giving the
+        tabs their own line buys most of it back, since they no longer stand
+        between the tools and the width they need.
         """
         frame = QFrame()
         frame.setObjectName("banner")
-        row = QHBoxLayout(frame)
-        row.setContentsMargins(8, 6, 8, 6)
+        column = QVBoxLayout(frame)
+        column.setContentsMargins(8, 4, 8, 6)
+        column.setSpacing(4)
+
+        # The panes get a line of their own. Sharing one with the tools left the
+        # row 39 pixels short in Crop and made the tabs compete for width with
+        # the things they switch between.
+        column.addWidget(self.build_mode_tabs(), 0, Qt.AlignmentFlag.AlignLeft)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
-        row.addWidget(self.build_mode_tabs())
         row.addWidget(self.build_tool_area(), 1)
         row.addWidget(self.build_commit_bar())
+        column.addLayout(row)
         return frame
 
     def build_mode_tabs(self) -> QTabBar:

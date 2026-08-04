@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The zoom and fit controls no longer take a strip of their own under the
+  picture: they float over it, bottom left, and stay out of sight until the
+  pointer is over the preview. The resolution stays in the corner where it was.
+- The editor's panes sit on a line of their own above the tools, so the tabs no
+  longer compete for width with the things they switch between — every pane's
+  row now fits, and the editor's minimum width drops from 509 to 360.
 - The editor is now three panes — **Edit**, **Crop** and **Background** — chosen
   with tabs. One row carrying every tool wanted more width than the window
   gives it, so Save as Copy and Cancel sat past the right-hand edge at the

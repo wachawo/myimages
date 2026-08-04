@@ -136,6 +136,13 @@ QToolButton#overlayStar {{
   background: rgba(0, 0, 0, 0.4); border: none; border-radius: 15px; padding: 0;
 }}
 QToolButton#overlayStar:hover {{ background: rgba(0, 0, 0, 0.6); }}
+/* The viewing controls sit on the photograph, so they carry their own dark
+   backing: a button drawn straight onto an image is legible over a dark
+   subject and invisible over a bright one. */
+QWidget#overlayControls {{
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+}}
 QLabel#overlayInfo {{
   background: rgba(0, 0, 0, 0.55); color: #ffffff;
   border-radius: 6px; padding: 2px 8px; font-size: 12px;

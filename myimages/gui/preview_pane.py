@@ -13,8 +13,9 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import (
+    QEnterEvent,
     QIcon,
     QImageReader,
     QMovie,
@@ -238,9 +239,17 @@ class PreviewPane(QWidget):
         self.resolution_label.setObjectName("overlayInfo")
         self.resolution_label.hide()
 
-        controls = QHBoxLayout()
-        controls.setContentsMargins(6, 0, 6, 6)
-        controls.setSpacing(6)
+        # The viewing controls float over the picture rather than taking a strip
+        # of their own beneath it, and they stay out of sight until the pointer
+        # is over the preview. They act on what is under them, so they belong on
+        # it -- but a photograph is the point of the window, and a control that
+        # is only wanted occasionally should not cover part of it the rest of
+        # the time.
+        self.controls_bar = QWidget(self)
+        self.controls_bar.setObjectName("overlayControls")
+        controls = QHBoxLayout(self.controls_bar)
+        controls.setContentsMargins(6, 4, 6, 4)
+        controls.setSpacing(4)
         self.zoom_out_button = self.make_control(
             icons.zoom_out, "Zoom out", self.image_view.zoom_out
         )
@@ -253,12 +262,14 @@ class PreviewPane(QWidget):
         self.play_button = self.make_control(
             icons.play, "Play / pause", self.toggle_playback
         )
-        controls.addWidget(self.zoom_out_button)
-        controls.addWidget(self.zoom_in_button)
-        controls.addWidget(self.fit_button)
-        controls.addStretch(1)
-        controls.addWidget(self.play_button)
-        layout.addLayout(controls)
+        for button in (
+            self.zoom_out_button,
+            self.zoom_in_button,
+            self.fit_button,
+            self.play_button,
+        ):
+            controls.addWidget(button)
+        self.controls_bar.hide()
         self.update_controls(MediaKind.OTHER)
 
     def enable_context_menu(self) -> None:
@@ -324,9 +335,50 @@ class PreviewPane(QWidget):
         self.resolution_label.setVisible(bool(text))
         self.position_overlays()
 
+    def enterEvent(self, event: QEnterEvent) -> None:
+        """Bring the viewing controls up when the pointer arrives."""
+        self.reveal_controls(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        """Take them away again when it leaves."""
+        self.reveal_controls(False)
+        super().leaveEvent(event)
+
+    def reveal_controls(self, visible: bool) -> None:
+        """Show or hide the floating controls, if this file has any to show.
+
+        Nothing appears over a message or an unsupported file: the buttons are
+        already disabled there, and a strip of dead controls fading in over an
+        empty pane reads as a fault.
+        """
+        # isVisibleTo, not isVisible: update_controls hides the buttons a file
+        # kind has no use for, and while the bar itself is down every child
+        # reports invisible whatever it was set to.
+        wanted = any(
+            button.isVisibleTo(self.controls_bar)
+            for button in (
+                self.zoom_out_button,
+                self.zoom_in_button,
+                self.fit_button,
+                self.play_button,
+            )
+        )
+        self.controls_bar.setVisible(visible and wanted)
+        if visible:
+            self.position_overlays()
+
     def position_overlays(self) -> None:
+        """Place everything that floats over the picture, on every resize.
+
+        Bottom-left for the controls and bottom-right for the resolution, so
+        neither sits where a subject usually does and the two never meet.
+        """
         self.favorite_button.move(self.width() - self.favorite_button.width() - 14, 14)
         self.favorite_button.raise_()
+        self.controls_bar.adjustSize()
+        self.controls_bar.move(12, self.height() - self.controls_bar.height() - 10)
+        self.controls_bar.raise_()
         self.resolution_label.adjustSize()
         self.resolution_label.move(
             self.width() - self.resolution_label.width() - 12,
