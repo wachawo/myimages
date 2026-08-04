@@ -708,3 +708,32 @@ def test_a_quick_drag_is_filled_in_rather_than_left_dotted(qtbot, make_image):
 
     assert len(editor.edits) == 1
     assert len(editor.edits[0].dabs) > 3
+
+
+def test_opening_a_file_converts_the_pixmap_once(qtbot, make_image, monkeypatch):
+    """Two conversions cost about 200 ms each on a 24-megapixel photograph."""
+    import myimages.gui.image_editor as module
+
+    calls: list[int] = []
+    original = module.pixmap_from_pil
+    monkeypatch.setattr(
+        module,
+        "pixmap_from_pil",
+        lambda image: (calls.append(1), original(image))[1],
+    )
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    assert len(calls) == 1
+
+
+def test_opening_a_file_puts_the_save_button_back(qtbot, make_image):
+    """A transparent result left Save renamed; the next file is not transparent."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, name="one.jpg"))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+    assert editor.save_button.text() == "Save as PNG"
+
+    editor.load(media_from(make_image, name="two.jpg"))
+    assert editor.save_button.text() == "Save"

@@ -430,8 +430,10 @@ class ImageEditor(QWidget):
         self.dabs = []
         self.preview_source = None
         self.preview_result = None
-        self.set_mode("crop")
+        self.show_mode_controls("crop")
+        self.canvas.set_interaction("crop")
         self.canvas.set_pixmap(pixmap_from_pil(self.working_image))
+        self.update_commit_buttons()
         self.aspect_group.buttons()[0].setChecked(True)
         self.canvas.set_aspect(None)
         self.status_label.setText("")
@@ -442,8 +444,14 @@ class ImageEditor(QWidget):
 
     # -- cut-out mode ------------------------------------------------------
 
-    def set_mode(self, mode: str) -> None:
-        """Show one mode's controls and hide the other's, resetting the tools."""
+    def show_mode_controls(self, mode: str) -> None:
+        """Swap which mode's controls are on the row, and disarm the tools.
+
+        Widget state only, no repaint: :meth:`load` sets the canvas itself right
+        afterwards, and converting a 24-megapixel photograph to a pixmap costs
+        about two hundred milliseconds, so doing it twice per file opened is a
+        visible pause for nothing.
+        """
         self.mode = mode
         cutout_mode = mode == "cutout"
         for control in self.crop_controls:
@@ -454,14 +462,18 @@ class ImageEditor(QWidget):
             True
         )
         self.arm_tool(None)
-        if cutout_mode:
+        self.refresh_labels()
+
+    def set_mode(self, mode: str) -> None:
+        """Switch modes and show what that mode should be showing."""
+        self.show_mode_controls(mode)
+        if mode == "cutout":
             self.build_preview_source()
             self.refresh_cutout()
         else:
             self.canvas.set_interaction("crop")
             if self.working_image is not None:
                 self.canvas.set_preview_pixmap(pixmap_from_pil(self.working_image))
-        self.refresh_labels()
         self.update_commit_buttons()
 
     def build_preview_source(self) -> None:
