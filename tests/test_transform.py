@@ -197,3 +197,72 @@ def test_flattening_uses_the_requested_background(tmp_path: Path) -> None:
     opaque = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
     written = transform.save_image(opaque, tmp_path / "out.bmp", background=(0, 0, 255))
     assert Image.open(written).convert("RGB").getpixel((0, 0)) == (10, 20, 30)
+
+
+def dpi_of(path: Path) -> tuple[int, int] | None:
+    """The density a saved file reports, rounded, or None when it has none."""
+    value = Image.open(path).info.get("dpi")
+    if value is None:
+        return None
+    return (round(float(value[0])), round(float(value[1])))
+
+
+@pytest.mark.parametrize("suffix", [".jpg", ".png", ".tiff", ".bmp"])
+def test_saving_carries_the_source_resolution_across(
+    tmp_path: Path, suffix: str
+) -> None:
+    """Pillow reads dpi from the save arguments, never from the image's info.
+
+    Before this, every format lost it -- and TIFF and BMP wrote a *wrong* one,
+    1 and 96, so a 300 dpi scan came back out claiming something it was not.
+    """
+    source = tmp_path / f"in{suffix}"
+    Image.new("RGB", (40, 30), (200, 90, 40)).save(source, dpi=(300, 300))
+
+    written = transform.save_image(
+        transform.load_image(source), tmp_path / f"out{suffix}"
+    )
+    assert dpi_of(written) == (300, 300)
+
+
+def test_an_explicit_resolution_overrides_the_source(tmp_path: Path) -> None:
+    source = Image.new("RGB", (40, 30))
+    source.info["dpi"] = (72, 72)
+    written = transform.save_image(source, tmp_path / "out.png", dpi=(300, 300))
+    assert dpi_of(written) == (300, 300)
+
+
+def test_the_resolution_survives_being_flattened(tmp_path: Path) -> None:
+    """Flattening builds a fresh picture whose info is empty.
+
+    Reading the value after that point loses it, which is exactly the trap an
+    opaque cut-out saved back over a JPEG would fall into.
+    """
+    opaque = Image.new("RGBA", (40, 30), (10, 20, 30, 255))
+    opaque.info["dpi"] = (300, 300)
+    written = transform.save_image(opaque, tmp_path / "out.jpg")
+    assert dpi_of(written) == (300, 300)
+
+
+@pytest.mark.parametrize("suffix", [".webp", ".gif"])
+def test_a_format_that_cannot_store_a_resolution_is_left_alone(
+    tmp_path: Path, suffix: str
+) -> None:
+    """Both accept the argument and drop it; asking is pointless, not harmful."""
+    source = Image.new("RGB", (40, 30))
+    source.info["dpi"] = (300, 300)
+    written = transform.save_image(source, tmp_path / f"out{suffix}")
+    assert dpi_of(written) is None
+
+
+def test_scaling_drops_a_resolution_that_no_longer_describes_the_pixels(
+    tmp_path: Path,
+) -> None:
+    """A 128-pixel thumbnail must not claim the density of the photograph."""
+    photo = Image.new("RGB", (800, 600))
+    photo.info["dpi"] = (300, 300)
+    thumbnail = transform.scale_image(photo, max_edge=128)
+    assert "dpi" not in thumbnail.info
+
+    written = transform.save_image(thumbnail, tmp_path / "thumb.png")
+    assert dpi_of(written) is None

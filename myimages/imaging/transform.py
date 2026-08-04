@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageOps
 
@@ -22,6 +23,7 @@ from myimages.imaging.save_policy import (
     AlphaFormatError,
     flatten_onto_background,
     has_transparency,
+    stores_dpi,
     supports_alpha,
 )
 
@@ -72,6 +74,7 @@ def save_image(
     *,
     quality: int = 90,
     background: tuple[int, int, int] = (255, 255, 255),
+    dpi: tuple[float, float] | None = None,
 ) -> Path:
     """Save an image, inferring the format from ``dest``'s suffix.
 
@@ -85,9 +88,18 @@ def save_image(
     An image that is merely in an alpha-capable mode without using it (an opaque
     RGBA screenshot, say) is flattened onto ``background`` instead, since that
     discards nothing the viewer could see.
+
+    The source's physical resolution is carried across unless ``dpi`` overrides
+    it. Pillow reads that from the ``save`` arguments and never from the image's
+    own ``info``, so a saver that does not pass it forward writes a file with no
+    density at all -- and for TIFF and BMP writes a *wrong* one, since those
+    encoders default to 1 and 96 rather than to nothing.
     """
     destination = Path(dest)
     suffix = destination.suffix.lower()
+    # Read before anything below can rebind ``image``: flattening builds a fresh
+    # picture whose info is empty, and the number would be gone by then.
+    carried = image.info.get("dpi")
     if has_transparency(image) and not supports_alpha(suffix):
         raise AlphaFormatError(
             f"{suffix or 'that format'} cannot store transparency; "
@@ -98,11 +110,17 @@ def save_image(
     if target_format in FORMATS_WITHOUT_ALPHA and image.mode in ALPHA_MODES:
         image = flatten_onto_background(image, background)
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    # ``Any`` rather than ``object``: mypy resolves save's second positional as
+    # ``format: str | None`` and rejects a stricter mapping splatted into it.
+    options: dict[str, Any] = {}
     if suffix in QUALITY_SUFFIXES:
-        image.save(destination, quality=quality)
-    else:
-        image.save(destination)
+        options["quality"] = quality
+    resolution = dpi if dpi is not None else carried
+    if resolution is not None and stores_dpi(suffix):
+        options["dpi"] = resolution
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image.save(destination, **options)
     return destination
 
 
@@ -205,7 +223,12 @@ def scale_image(
     max_edge: int | None = None,
     keep_aspect: bool = True,
 ) -> Image.Image:
-    """Resize an image; never upscales when constrained by ``max_edge``."""
+    """Resize an image; never upscales when constrained by ``max_edge``.
+
+    The source's dpi is deliberately dropped: it describes a pixel count this
+    result no longer has, so carrying it forward would make a 128-pixel
+    thumbnail claim the density of the photograph it came from.
+    """
     source_width, source_height = image.width, image.height
     if max_edge is not None:
         longest = max(source_width, source_height)
@@ -224,4 +247,6 @@ def scale_image(
     else:
         return image.copy()
     target = (max(1, target[0]), max(1, target[1]))
-    return image.resize(target, Image.Resampling.LANCZOS)
+    resized = image.resize(target, Image.Resampling.LANCZOS)
+    resized.info.pop("dpi", None)
+    return resized

@@ -122,3 +122,16 @@ def test_register_heif_activates_when_dependency_present(
 
     assert convert.register_heif() is True
     assert registrations == ["registered"]
+
+
+def test_conversion_carries_the_source_resolution(tmp_path):
+    """The same flatten trap as save_image: grayscale and flatten rebind image."""
+    from PIL import Image
+
+    from myimages.imaging import convert
+
+    source = tmp_path / "in.png"
+    Image.new("RGB", (40, 30), (200, 90, 40)).save(source, dpi=(300, 300))
+    written = convert.convert_image(source, tmp_path / "out.jpg")
+    value = Image.open(written).info.get("dpi")
+    assert value is not None and round(float(value[0])) == 300

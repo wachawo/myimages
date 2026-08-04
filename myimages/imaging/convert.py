@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any
 
 from myimages.imaging.save_policy import (
     ALPHA_MODES,
@@ -23,6 +24,7 @@ from myimages.imaging.save_policy import (
     FORMATS_WITHOUT_ALPHA,
     SUPPORTED_FORMATS,
     flatten_onto_background,
+    stores_dpi,
 )
 from myimages.imaging.transform import load_image, to_grayscale
 
@@ -91,6 +93,10 @@ def convert_image(
         )
 
     image = load_image(source)
+    # Read before grayscale or flattening rebinds ``image``: both build a fresh
+    # picture whose info is empty, and Pillow only writes a density it is given
+    # in the save arguments.
+    carried = image.info.get("dpi")
     if grayscale:
         # Re-expand to RGB so grey output stays compatible with every target
         # format (single-channel ``L`` cannot be saved as, e.g., WebP).
@@ -98,11 +104,14 @@ def convert_image(
     if target_format in FORMATS_WITHOUT_ALPHA and image.mode in ALPHA_MODES:
         image = flatten_onto_background(image, background)
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    options: dict[str, Any] = {"format": target_format}
     if target_format in FORMATS_WITH_QUALITY:
-        image.save(destination, format=target_format, quality=quality)
-    else:
-        image.save(destination, format=target_format)
+        options["quality"] = quality
+    if carried is not None and stores_dpi(destination.suffix):
+        options["dpi"] = carried
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image.save(destination, **options)
     return destination
 
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving an image threw away its print resolution. Every format lost it, and
+  TIFF and BMP wrote a *wrong* one — a 300 dpi scan opened, rotated and saved
+  came back claiming 1 dpi or 96 dpi. The value is now carried across, and
+  formats that cannot record one (WebP, GIF) are left alone rather than asked.
+- Thumbnails no longer inherit the resolution of the photograph they came from,
+  which described a pixel count they do not have.
+
+
 ## [0.0.2] - 2026-08-04
 
 ### Added

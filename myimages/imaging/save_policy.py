@@ -63,6 +63,14 @@ ALPHA_SAFE_SUFFIXES: frozenset[str] = frozenset({".png", ".webp", ".tiff", ".tif
 # Where a transparent result goes when the source format cannot hold it.
 FALLBACK_SUFFIX = ".png"
 
+# Suffixes whose encoders record a physical resolution. Measured, because two of
+# them accept a ``dpi`` argument and silently drop it: WebP has nowhere to put
+# one, and GIF's screen descriptor has no density field. A caller that needs the
+# number to survive has to know which is which.
+DPI_SUFFIXES: frozenset[str] = frozenset(
+    {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
+)
+
 
 class AlphaFormatError(ValueError):
     """Raised when a transparent image is asked to be written without alpha.
@@ -90,6 +98,11 @@ class SavePlan:
 def supports_alpha(suffix: str) -> bool:
     """True when a file with this suffix can store partial transparency."""
     return suffix.lower() in ALPHA_SAFE_SUFFIXES
+
+
+def stores_dpi(suffix: str) -> bool:
+    """True when a file with this suffix records a physical resolution."""
+    return suffix.lower() in DPI_SUFFIXES
 
 
 def has_transparency(image: Image.Image) -> bool:
