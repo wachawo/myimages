@@ -1208,6 +1208,7 @@ def test_preview_menu_offers_every_action_for_an_image(qtbot, gui_settings, imag
         "Rotate",
         "Convert",
         "Remove Watermark",
+        "Remove Background",
     ]
     assert enabled_labels(win) == set(labels)
 
@@ -1740,3 +1741,31 @@ def test_showing_the_window_again_does_not_steal_the_keyboard(
     qtbot.waitExposed(win)
 
     assert win.focusWidget() is win.file_list.search_edit
+
+
+def test_remove_background_opens_the_editor_already_in_cutout_mode(
+    qtbot, gui_settings, image_dir
+):
+    """The menu row is the whole point of the entry: one step, not two."""
+    win = make_window(qtbot, gui_settings)
+    load_gallery(win, image_dir)
+    win.open_cutout_editor()
+    assert win.preview_area.currentWidget() is win.editor
+    assert win.editor.mode == "cutout"
+
+
+def test_remove_background_is_offered_only_for_an_image(qtbot, gui_settings, image_dir):
+    win = make_window(qtbot, gui_settings)
+    load_gallery(win, image_dir)
+    assert "Remove Background" in enabled_labels(win)
+    assert win.action_cutout.isEnabled()
+
+    win.current = None
+    win.update_action_states()
+    assert not win.action_cutout.isEnabled()
+
+
+def test_remove_background_does_nothing_without_a_current_image(qtbot, gui_settings):
+    win = make_window(qtbot, gui_settings)
+    win.open_cutout_editor()
+    assert win.preview_area.currentWidget() is not win.editor

@@ -433,3 +433,21 @@ def test_the_selection_overlay_is_hidden_outside_crop_mode(qtbot):
 
     canvas.set_interaction("crop")
     assert canvas.grab().toImage() == with_overlay
+
+
+def test_set_backdrop_rejects_one_it_does_not_have(qtbot):
+    canvas = make_canvas(qtbot)
+    with pytest.raises(ValueError):
+        canvas.set_backdrop("tartan")
+
+
+def test_a_flat_backdrop_replaces_the_checker(qtbot):
+    """The flat colours exist to judge a fringe the checker's own edges hide."""
+    canvas = make_canvas(qtbot)
+    canvas.set_preview_pixmap(transparent_pixmap())
+    checkered = canvas.grab().toImage()
+
+    canvas.set_backdrop("magenta")
+    flat = canvas.grab().toImage()
+    assert flat != checkered
+    assert flat.pixelColor(4, 34).name() == "#ff00ff"
