@@ -13,9 +13,8 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QUrl, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import (
-    QEnterEvent,
     QIcon,
     QImageReader,
     QMovie,
@@ -71,6 +70,11 @@ def load_pixmap(path: str | Path) -> QPixmap:
         return QPixmap()
     return QPixmap.fromImage(image)
 
+
+# The floating controls are sized to match the resolution badge beside them:
+# same height, so the two read as one row of chrome rather than two strays.
+OVERLAY_ICON = 14
+OVERLAY_PADDING = 4
 
 # Pages rendered per batch: enough to fill a few screens, small enough that a
 # huge document opens instantly instead of freezing while every page rasterises.
@@ -240,21 +244,24 @@ class PreviewPane(QWidget):
         self.resolution_label.hide()
 
         # The viewing controls float over the picture rather than taking a strip
-        # of their own beneath it, and they stay out of sight until the pointer
-        # is over the preview. They act on what is under them, so they belong on
-        # it -- but a photograph is the point of the window, and a control that
-        # is only wanted occasionally should not cover part of it the rest of
-        # the time.
+        # of their own beneath it. They act on what is under them, so that is
+        # where they belong, and a strip costs its height on every photograph
+        # including the ones nobody is going to zoom. They stay put rather than
+        # appearing on hover: a control that has to be discovered by waving at
+        # the window is one most people never find.
         self.controls_bar = QWidget(self)
         self.controls_bar.setObjectName("overlayControls")
         controls = QHBoxLayout(self.controls_bar)
-        controls.setContentsMargins(6, 4, 6, 4)
-        controls.setSpacing(4)
+        # Sized to sit level with the resolution badge in the opposite corner.
+        # Two floating labels of different heights on the same edge read as an
+        # accident rather than a pair.
+        controls.setContentsMargins(OVERLAY_PADDING, 0, OVERLAY_PADDING, 0)
+        controls.setSpacing(2)
         self.zoom_out_button = self.make_control(
-            icons.zoom_out, "Zoom out", self.image_view.zoom_out
+            icons.zoom_out, "Zoom out (Ctrl+wheel)", self.image_view.zoom_out
         )
         self.zoom_in_button = self.make_control(
-            icons.zoom_in, "Zoom in", self.image_view.zoom_in
+            icons.zoom_in, "Zoom in (Ctrl+wheel)", self.image_view.zoom_in
         )
         self.fit_button = self.make_control(
             icons.fit, "Fit to window", self.image_view.fit
@@ -269,7 +276,6 @@ class PreviewPane(QWidget):
             self.play_button,
         ):
             controls.addWidget(button)
-        self.controls_bar.hide()
         self.update_controls(MediaKind.OTHER)
 
     def enable_context_menu(self) -> None:
@@ -307,6 +313,7 @@ class PreviewPane(QWidget):
         button = QToolButton()
         button.setObjectName("flat")
         button.setIcon(icon_factory())
+        button.setIconSize(QSize(OVERLAY_ICON, OVERLAY_ICON))
         button.setToolTip(tooltip)
         button.clicked.connect(handler)
         self.themed_buttons.append((button, icon_factory))
@@ -323,6 +330,7 @@ class PreviewPane(QWidget):
         for button in (self.zoom_out_button, self.zoom_in_button, self.fit_button):
             button.setVisible(is_image)
         self.play_button.setVisible(kind is MediaKind.VIDEO and VIDEO_BACKEND_AVAILABLE)
+        self.reveal_controls()
 
     def set_favorite(self, favorite: bool) -> None:
         """Reflect whether the current file is a favourite on the overlay star."""
@@ -335,22 +343,11 @@ class PreviewPane(QWidget):
         self.resolution_label.setVisible(bool(text))
         self.position_overlays()
 
-    def enterEvent(self, event: QEnterEvent) -> None:
-        """Bring the viewing controls up when the pointer arrives."""
-        self.reveal_controls(True)
-        super().enterEvent(event)
+    def reveal_controls(self) -> None:
+        """Show the floating controls only when this file has any to offer.
 
-    def leaveEvent(self, event: QEvent) -> None:
-        """Take them away again when it leaves."""
-        self.reveal_controls(False)
-        super().leaveEvent(event)
-
-    def reveal_controls(self, visible: bool) -> None:
-        """Show or hide the floating controls, if this file has any to show.
-
-        Nothing appears over a message or an unsupported file: the buttons are
-        already disabled there, and a strip of dead controls fading in over an
-        empty pane reads as a fault.
+        Nothing sits over a message or an unsupported file: a strip of dead
+        buttons on an empty pane reads as a fault.
         """
         # isVisibleTo, not isVisible: update_controls hides the buttons a file
         # kind has no use for, and while the bar itself is down every child
@@ -364,9 +361,8 @@ class PreviewPane(QWidget):
                 self.play_button,
             )
         )
-        self.controls_bar.setVisible(visible and wanted)
-        if visible:
-            self.position_overlays()
+        self.controls_bar.setVisible(wanted)
+        self.position_overlays()
 
     def position_overlays(self) -> None:
         """Place everything that floats over the picture, on every resize.
@@ -376,6 +372,16 @@ class PreviewPane(QWidget):
         """
         self.favorite_button.move(self.width() - self.favorite_button.width() - 14, 14)
         self.favorite_button.raise_()
+        # One height for both, measured here rather than pinned in the
+        # stylesheet: the badge's height is a text height and moves with the
+        # theme's font, so matching numbers in the theme would only hold for
+        # one font size. Taking the larger keeps the icons from clipping.
+        shared_height = max(
+            self.resolution_label.sizeHint().height(),
+            self.controls_bar.sizeHint().height(),
+        )
+        self.controls_bar.setFixedHeight(shared_height)
+        self.resolution_label.setFixedHeight(shared_height)
         self.controls_bar.adjustSize()
         self.controls_bar.move(12, self.height() - self.controls_bar.height() - 10)
         self.controls_bar.raise_()
@@ -524,8 +530,8 @@ class PreviewPane(QWidget):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         # Reached only when a non-image view is shown (the image view handles
-        # its own wheel). Plain wheel steps files; Shift is left for zooming.
-        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        # its own wheel). Plain wheel steps files; Ctrl is left for zooming.
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             event.ignore()
             return
         self.navigate.emit(-1 if event.angleDelta().y() > 0 else 1)

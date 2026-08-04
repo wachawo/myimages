@@ -23,7 +23,7 @@ MAX_SCALE = 40.0
 class ImageView(QGraphicsView):
     """Displays one pixmap with fit-to-window, wheel navigation and zoom.
 
-    The mouse wheel steps to the previous/next file; **Shift**+wheel zooms. Fit
+    The mouse wheel steps to the previous/next file; **Ctrl**+wheel zooms. Fit
     is the most zoomed-out state — you can never zoom out past the point where
     the whole image is visible.
     """
@@ -91,7 +91,7 @@ class ImageView(QGraphicsView):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         stepping_up = event.angleDelta().y() > 0
-        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if self.has_image():
                 self.zoom_by(ZOOM_STEP if stepping_up else 1 / ZOOM_STEP)
         else:

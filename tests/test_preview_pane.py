@@ -91,11 +91,11 @@ def test_wheel_over_pane_navigates(qtbot):
     assert directions == [-1, 1]
 
 
-def test_shift_wheel_over_pane_does_not_navigate(qtbot):
+def test_ctrl_wheel_over_pane_does_not_navigate(qtbot):
     pane = make_pane(qtbot)
     directions: list[int] = []
     pane.navigate.connect(directions.append)
-    pane.wheelEvent(wheel_event(120, Qt.KeyboardModifier.ShiftModifier))
+    pane.wheelEvent(wheel_event(120, Qt.KeyboardModifier.ControlModifier))
     assert directions == []
 
 
@@ -488,11 +488,9 @@ def test_every_stacked_view_relays_a_right_click(qtbot):
     assert len(seen) == len(views)
 
 
-def test_the_viewing_controls_stay_off_the_picture_until_the_pointer_arrives(
-    qtbot, make_image
-):
-    """A photograph is the point of the window; an occasional control should
-    not cover part of it the rest of the time."""
+def test_the_viewing_controls_are_there_as_soon_as_a_picture_is(qtbot, make_image):
+    """They do not wait to be discovered. A control that only appears once the
+    pointer happens to cross it is one most people never find."""
     from myimages.core.media import build_media_file
 
     pane = PreviewPane()
@@ -500,38 +498,46 @@ def test_the_viewing_controls_stay_off_the_picture_until_the_pointer_arrives(
     pane.show_media(build_media_file(make_image()))
     # isVisibleTo rather than isVisible: the pane itself was never shown, and a
     # child of a hidden parent reports invisible whatever it was set to.
-    assert not pane.controls_bar.isVisibleTo(pane)
-
-    pane.reveal_controls(True)
     assert pane.controls_bar.isVisibleTo(pane)
-
-    pane.reveal_controls(False)
-    assert not pane.controls_bar.isVisibleTo(pane)
 
 
 def test_nothing_appears_over_a_file_with_no_controls(qtbot):
-    """A strip of dead buttons fading in over an empty pane reads as a fault."""
+    """A strip of dead buttons over an empty pane reads as a fault."""
     pane = PreviewPane()
     qtbot.addWidget(pane)
     pane.show_media(None)
-    pane.reveal_controls(True)
     assert not pane.controls_bar.isVisibleTo(pane)
 
 
-def test_the_pointer_arriving_and_leaving_drives_the_controls(qtbot, make_image):
-    """The handlers are two lines each, and they are the whole gesture."""
-    from PySide6.QtCore import QEvent, QPointF
-    from PySide6.QtGui import QEnterEvent
-
+def test_the_controls_go_away_again_when_the_next_file_has_none(qtbot, make_image):
+    """Moving from a photograph to a text file must take the zoom buttons with
+    it, or they sit over the message enabled and inert."""
     from myimages.core.media import build_media_file
 
     pane = PreviewPane()
     qtbot.addWidget(pane)
     pane.show_media(build_media_file(make_image()))
-
-    arrive = QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
-    pane.enterEvent(arrive)
     assert pane.controls_bar.isVisibleTo(pane)
 
-    pane.leaveEvent(QEvent(QEvent.Type.Leave))
+    pane.show_media(None)
     assert not pane.controls_bar.isVisibleTo(pane)
+
+
+def test_the_controls_and_the_resolution_badge_are_the_same_height(qtbot, make_image):
+    """They float on the same edge of the same photograph. Two overlays of
+    different heights there read as an accident rather than as a pair."""
+    from myimages.core.media import build_media_file
+
+    pane = PreviewPane()
+    qtbot.addWidget(pane)
+    pane.resize(600, 400)
+    pane.show_media(build_media_file(make_image()))
+    pane.resolution_label.setText("800 × 600")
+    pane.resolution_label.show()
+    pane.position_overlays()
+
+    difference = abs(pane.controls_bar.height() - pane.resolution_label.height())
+    assert difference <= 2, (
+        f"controls {pane.controls_bar.height()}px "
+        f"vs badge {pane.resolution_label.height()}px"
+    )

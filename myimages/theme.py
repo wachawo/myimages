@@ -109,6 +109,10 @@ QLineEdit {{
   selection-background-color: {scheme.accent};
 }}
 QLineEdit:focus {{ border: 1px solid {scheme.accent}; }}
+/* The typed-shape box sits in the row of aspect buttons and is sized to match
+   one, so it needs their padding too -- the default eats 24px of a 52px chip
+   and elides the placeholder to an ellipsis. */
+QLineEdit#aspectField {{ padding: 6px; }}
 
 QPushButton {{
   background: {scheme.panel_alt}; border: 1px solid {scheme.border};
@@ -141,9 +145,11 @@ QToolButton#overlayStar:hover {{ background: rgba(0, 0, 0, 0.6); }}
    backing: a button drawn straight onto an image is legible over a dark
    subject and invisible over a bright one. */
 QWidget#overlayControls {{
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 6px;
 }}
+/* Same padding and radius as #overlayInfo opposite, so the two float level. */
+QWidget#overlayControls QToolButton {{ padding: 2px; border-radius: 4px; }}
 QLabel#overlayInfo {{
   background: rgba(0, 0, 0, 0.55); color: #ffffff;
   border-radius: 6px; padding: 2px 8px; font-size: 12px;

@@ -102,7 +102,7 @@ def test_a_shape_button_locks_the_canvas(qtbot, make_image):
 
 
 def test_pressing_the_lit_shape_again_releases_the_lock(qtbot, make_image):
-    """The buttons are their own off switch, so there is no "Free" entry."""
+    """The buttons are their own off switch, and N:N takes over when they go out."""
     editor = make_editor(qtbot)
     editor.load(media_from(make_image))
     editor.set_mode("crop")
@@ -113,6 +113,57 @@ def test_pressing_the_lit_shape_again_releases_the_lock(qtbot, make_image):
     editor.toggle_aspect((4, 3))
     assert editor.canvas.aspect is None
     assert not editor.aspect_buttons[(4, 3)].isChecked()
+    assert editor.free_aspect_button.isChecked()
+
+
+def test_n_by_n_releases_the_lock(qtbot, make_image):
+    """The row needs an explicit "no shape", not only a second press on the lit
+    one: nothing else in it says out loud that the box is unconstrained."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+    editor.toggle_aspect((16, 9))
+    assert not editor.free_aspect_button.isChecked()
+
+    editor.set_aspect_lock(None)
+    assert editor.canvas.aspect is None
+    assert editor.free_aspect_button.isChecked()
+    assert not any(b.isChecked() for b in editor.aspect_buttons.values())
+
+
+def test_n_by_n_starts_lit(qtbot, make_image):
+    """A crop box with no shape is the state the editor opens in, so the button
+    that names that state has to be the one showing."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+    assert editor.canvas.aspect is None
+    assert editor.free_aspect_button.isChecked()
+
+
+def test_a_typed_shape_puts_n_by_n_out(qtbot, make_image):
+    """Typing 0.7667 is a lock like any other; leaving N:N lit would say the
+    box was free while it was holding a page ratio."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+
+    editor.aspect_field.setText("0.7667")
+    editor.on_aspect_typed()
+    assert not editor.free_aspect_button.isChecked()
+
+
+def test_the_typed_shape_box_is_as_wide_as_a_shape_button(qtbot, make_image):
+    """It sits in the row with them, and a box of another width breaks it."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("crop")
+
+    widest = max(
+        button.sizeHint().width()
+        for button in [*editor.aspect_buttons.values(), editor.free_aspect_button]
+    )
+    assert editor.aspect_field.width() == widest
 
 
 def test_only_one_shape_is_lit_at_a_time(qtbot, make_image):

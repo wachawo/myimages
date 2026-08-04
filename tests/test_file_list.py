@@ -230,7 +230,7 @@ def test_the_columns_button_cycles_and_announces_the_count(
 
     assert gui_settings.grid_columns == 3
     assert caught.args == [3]
-    assert "3 thumbnail" in panel.columns_button.toolTip()
+    assert panel.columns_button.toolTip() == "3 per row"
     assert not panel.columns_button.icon().isNull()
 
 

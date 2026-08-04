@@ -285,22 +285,16 @@ class FileListPanel(QWidget):
             "list": icons.rows(),
             "table": icons.table_view(),
         }[mode]
-        mode_tip = {
-            "grid": "Thumbnails — click for a plain list",
-            "list": "Plain list — click for a table",
-            "table": "Table — click for thumbnails",
-        }[mode]
+        mode_tip = {"grid": "Thumbnails", "list": "Plain list", "table": "Table"}[mode]
         self.view_button.setIcon(mode_icon)
         self.view_button.setToolTip(mode_tip)
         self.favorites_button.setIcon(icons.star(self.settings.favorites_only))
         self.favorites_button.setToolTip("Show only favourites")
         columns = self.settings.grid_columns
         self.columns_button.setIcon(icons.columns(columns))
-        self.columns_button.setToolTip(
-            f"{columns} thumbnail(s) per row — click to widen the panel"
-        )
+        self.columns_button.setToolTip(f"{columns} per row")
         self.select_button.setIcon(icons.select_mode())
-        self.select_button.setToolTip("Selection mode — tap files to select them")
+        self.select_button.setToolTip("Selection mode")
 
     def apply_selection_mode(self) -> None:
         """Tap-to-toggle (MultiSelection) when on; Ctrl/Shift (Extended) when off."""

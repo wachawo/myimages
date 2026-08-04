@@ -57,10 +57,23 @@ def star_points(cx: float, cy: float, outer: float, inner: float) -> QPainterPat
 
 
 def open_folder() -> QIcon:
+    """A folder outline: one path, tab above the body on the left.
+
+    Drawn as a single closed path rather than a rectangle with two lines
+    attached to it. The rectangle read as a box with a scratch in the corner,
+    because the tab has to *break* the top edge to be a tab at all.
+    """
+
     def draw(p: QPainter) -> None:
-        p.drawRoundedRect(QRectF(3, 6, 16, 12), 2, 2)
-        p.drawLine(3, 6, 9, 6)
-        p.drawLine(9, 6, 11, 8)
+        path = QPainterPath()
+        path.moveTo(3.5, 17.5)  # bottom-left
+        path.lineTo(3.5, 5.5)  # up the left edge, past the body
+        path.lineTo(9.0, 5.5)  # across the tab
+        path.lineTo(11.0, 8.0)  # down-right to where the body starts
+        path.lineTo(18.5, 8.0)  # across the top of the body
+        path.lineTo(18.5, 17.5)  # down the right edge
+        path.closeSubpath()  # back along the bottom
+        p.drawPath(path)
 
     return painted(draw)
 

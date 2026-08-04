@@ -108,17 +108,17 @@ def test_plain_wheel_navigates_previous_and_next(qtbot, make_image):
     assert directions == [-1, 1]
 
 
-def test_shift_wheel_zooms(qtbot, make_image):
+def test_ctrl_wheel_zooms(qtbot, make_image):
     view = load_view(qtbot, make_image)
     before = view.current_scale()
-    view.wheelEvent(wheel_event(120, Qt.KeyboardModifier.ShiftModifier))
+    view.wheelEvent(wheel_event(120, Qt.KeyboardModifier.ControlModifier))
     assert view.current_scale() > before
 
 
-def test_shift_wheel_with_no_image_is_a_noop(qtbot):
+def test_ctrl_wheel_with_no_image_is_a_noop(qtbot):
     view = ImageView()
     qtbot.addWidget(view)
-    view.wheelEvent(wheel_event(120, Qt.KeyboardModifier.ShiftModifier))
+    view.wheelEvent(wheel_event(120, Qt.KeyboardModifier.ControlModifier))
     assert view.has_image() is False
 
 

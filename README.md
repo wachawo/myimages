@@ -29,7 +29,7 @@ paints, so they cannot drift away from what it actually looks like.
   programs, and only the thumbnails that actually changed are rebuilt.
 - **Preview** photos with fit / wheel-zoom / pan, and videos with Qt Multimedia
   (falls back to a note + the video tools when the backend is absent).
-- **Navigate** with **←/→** or the mouse wheel; **Shift**+wheel zooms and never
+- **Navigate** with **←/→** or the mouse wheel; **Ctrl**+wheel zooms and never
   zooms out past the fit-to-window size.
 - **File list** on a panel that can sit on either side: three views (thumbnail
   grid, plain names, or a sortable table with clickable headers), a name-search

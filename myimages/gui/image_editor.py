@@ -93,9 +93,6 @@ TOOL_INTERACTION: dict[str, str] = {
     "restore": "paint",
 }
 
-# Enough for a typed shape like 0.7667 without crowding the buttons beside it.
-ASPECT_FIELD_WIDTH = 64
-
 # A ceiling on a typed size. Past this the resize is a mistake rather than an
 # intention, and Pillow would spend a long time proving it.
 MAXIMUM_EDGE = 30000
@@ -132,16 +129,22 @@ def parse_aspect(text: str) -> tuple[int, int] | None:
     return (max(1, round(width * scale)), max(1, round(height * scale)))
 
 
-ASPECTS: tuple[tuple[str, tuple[int, int] | None], ...] = (
-    ("Free", None),
-    ("1:1", (1, 1)),
-    ("3:2", (3, 2)),
-    ("2:3", (2, 3)),
-    ("4:3", (4, 3)),
-    ("3:4", (3, 4)),
+# Ordered widest to tallest, so the row is a single progression through the
+# square rather than landscape and portrait interleaved. Reading along it is
+# then the same motion as the shape it selects.
+ASPECTS: tuple[tuple[str, tuple[int, int]], ...] = (
     ("16:9", (16, 9)),
+    ("3:2", (3, 2)),
+    ("4:3", (4, 3)),
+    ("1:1", (1, 1)),
+    ("3:4", (3, 4)),
+    ("2:3", (2, 3)),
     ("9:16", (9, 16)),
 )
+
+# The label on the button that holds no shape at all. Not "Free": the row reads
+# as ratios, and "N:N" is one -- any width to any height.
+FREE_ASPECT_LABEL = "N:N"
 
 
 def pixmap_from_pil(image: Image.Image) -> QPixmap:
@@ -359,8 +362,9 @@ class ImageEditor(QWidget):
 
         The shapes are buttons rather than a list: a row of them shows at a
         glance which one is on, where a list shows only the one it is showing.
-        Pressing the lit one releases the lock, so there is no "Free" entry to
-        mean "none of these" -- the buttons are their own off switch.
+        Pressing the lit one releases the lock, and ``N:N`` at the end does the
+        same explicitly -- one of the row is always lit, so the row always says
+        what the box is doing.
         """
         self.aspect_group = QButtonGroup(self)
         # Not exclusive: an exclusive group will not let the checked button be
@@ -369,30 +373,43 @@ class ImageEditor(QWidget):
         self.aspect_buttons: dict[tuple[int, int], QToolButton] = {}
         chips: list[QWidget] = []
         for label, ratio in ASPECTS:
-            if ratio is None:
-                continue
             button = QToolButton()
             button.setText(label)
             button.setCheckable(True)
-            button.setToolTip(f"Lock the box to {label}; press again to release")
+            button.setToolTip(f"Lock to {label}")
             button.clicked.connect(lambda checked, r=ratio: self.toggle_aspect(r))
             self.aspect_group.addButton(button)
             self.aspect_buttons[ratio] = button
             chips.append(button)
 
+        self.free_aspect_button = QToolButton()
+        self.free_aspect_button.setText(FREE_ASPECT_LABEL)
+        self.free_aspect_button.setCheckable(True)
+        self.free_aspect_button.setChecked(True)
+        self.free_aspect_button.setToolTip("Any shape")
+        self.free_aspect_button.clicked.connect(
+            lambda checked: self.set_aspect_lock(None)
+        )
+        self.aspect_group.addButton(self.free_aspect_button)
+        chips.append(self.free_aspect_button)
+
         # Print work needs shapes no row of buttons can hold: a KDP cover is
         # 0.7667, which is nobody's camera preset.
         self.aspect_field = QLineEdit()
-        self.aspect_field.setPlaceholderText("3:2")
-        self.aspect_field.setFixedWidth(ASPECT_FIELD_WIDTH)
-        self.aspect_field.setToolTip("Or type a shape, like 3:2 or 0.7667")
+        self.aspect_field.setObjectName("aspectField")
+        self.aspect_field.setPlaceholderText("W:H")
+        # As wide as the buttons beside it, so the row keeps one rhythm. Taken
+        # from the widest of them rather than guessed: the labels are four
+        # characters in a theme font that is not ours to predict.
+        self.aspect_field.setFixedWidth(
+            max(button.sizeHint().width() for button in chips)
+        )
+        self.aspect_field.setToolTip("Custom shape, like 3:2 or 0.7667")
         self.aspect_field.editingFinished.connect(self.on_aspect_typed)
 
         self.crop_button = self.tool_button(icons.crop, "Apply crop", self.apply_crop)
         self.clear_button = self.tool_button(
-            icons.clear_selection,
-            "Clear the selection to draw a new one",
-            self.canvas.clear_selection,
+            icons.clear_selection, "Clear selection", self.canvas.clear_selection
         )
         return self.tool_panel(
             [*chips, self.aspect_field, self.crop_button, self.clear_button]
@@ -402,39 +419,35 @@ class ImageEditor(QWidget):
         """Take the background away: by model, by hand, or the watermark alone."""
         self.subject_button = self.tool_button(
             icons.auto_subject,
-            "Find the subject with a model and clear everything else",
+            "Find the subject",
             self.remove_background_automatically,
         )
         self.tool_group = QButtonGroup(self)
         self.tool_group.setExclusive(False)
-        self.wand_button = self.tool_chip(
-            icons.wand, "Magic wand: click a colour to clear its region", "wand"
-        )
-        self.eraser_button = self.tool_chip(
-            icons.eraser, "Eraser: drag to clear", "erase"
-        )
+        self.wand_button = self.tool_chip(icons.wand, "Magic wand", "wand")
+        self.eraser_button = self.tool_chip(icons.eraser, "Eraser", "erase")
         self.restore_button = self.tool_chip(
             icons.restore_brush,
-            "Restore brush: drag to paint the picture back",
+            "Restore brush",
             "restore",
         )
         self.watermark_button = self.tool_button(
             icons.watermark,
-            "Remove a watermark: inside the selection, or the bottom-right corner",
+            "Remove a watermark",
             self.remove_watermark,
         )
         self.settings_button = self.build_settings_button()
         self.undo_button = self.tool_button(
-            icons.undo, "Undo the last wand click or brush stroke", self.undo_edit
+            icons.undo, "Undo the last edit", self.undo_edit
         )
         self.compare_button = self.tool_button(
-            icons.compare, "Hold to see the picture before these edits", lambda: None
+            icons.compare, "Hold to compare", lambda: None
         )
         self.compare_button.pressed.connect(lambda: self.set_comparing(True))
         self.compare_button.released.connect(lambda: self.set_comparing(False))
         self.backdrop_button = self.tool_button(
             icons.backdrop,
-            "What shows through: checker, white, black, magenta",
+            "Backdrop behind the cut-out",
             self.cycle_backdrop,
         )
         return self.tool_panel(
@@ -459,7 +472,7 @@ class ImageEditor(QWidget):
         """
         button = QToolButton()
         button.setIcon(icons.settings())
-        button.setToolTip("Tolerance, brush size and edge softening")
+        button.setToolTip("Brush settings")
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
         panel = QWidget()
@@ -926,10 +939,11 @@ class ImageEditor(QWidget):
         self.set_aspect_lock(None if already else ratio)
 
     def set_aspect_lock(self, ratio: tuple[int, int] | None) -> None:
-        """Apply a shape and show which button, if any, is holding it."""
+        """Apply a shape and light the one button that is holding it."""
         self.canvas.set_aspect(ratio)
         for locked, button in self.aspect_buttons.items():
             button.setChecked(locked == ratio)
+        self.free_aspect_button.setChecked(ratio is None)
         if ratio is None or ratio in self.aspect_buttons:
             self.aspect_field.clear()
 
@@ -949,6 +963,8 @@ class ImageEditor(QWidget):
         self.canvas.set_aspect(ratio)
         for button in self.aspect_buttons.values():
             button.setChecked(False)
+        # The typed shape is a lock too, so N:N goes out with the rest.
+        self.free_aspect_button.setChecked(False)
         self.status_label.setText("")
 
     def open_resize(self) -> None:

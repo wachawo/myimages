@@ -857,7 +857,7 @@ REENCODED = ("IMG_0317.jpg", "IMG_0317_edited.jpg")
 # The photograph each screenshot opens, and the state around it.
 GALLERY_SUBJECT = "IMG_0312.jpg"
 CROP_SUBJECT = "IMG_0317.jpg"
-CROP_ASPECT = "16:9"
+CROP_ASPECT = (16, 9)
 CUTOUT_SUBJECT = "IMG_0447.jpg"
 FAVOURITES = ("IMG_0312.jpg", "IMG_0390.jpg", "IMG_0433.jpg")
 SELECTED = ("IMG_0312.jpg", "IMG_0317.jpg", "IMG_0329.jpg")
@@ -1133,11 +1133,9 @@ def shoot_crop(app: QApplication, window: MainWindow, gallery: Path) -> Image.Im
     window.open_edit()
     editor = window.editor
     editor.set_mode("crop")
-    # Through the combo rather than straight to set_aspect, so the control shows
+    # Through the button rather than straight to set_aspect, so the row shows
     # the shape the box is locked to instead of contradicting it.
-    shape = editor.aspect_combo.findText(CROP_ASPECT)
-    editor.aspect_combo.setCurrentIndex(shape)
-    editor.on_aspect_chosen(shape)
+    editor.toggle_aspect(CROP_ASPECT)
     image = editor.working_image
     if image is None:
         raise RuntimeError("the editor opened without an image")

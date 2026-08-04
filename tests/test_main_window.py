@@ -671,7 +671,8 @@ def test_constructing_with_list_on_left(qtbot, gui_settings):
     gui_settings.file_list_on_left = True
     win = make_window(qtbot, gui_settings)
     assert win.splitter.indexOf(win.sidebar) == 0
-    assert "left" in win.side_button.toolTip()
+    # The tooltip names the move the press makes, not where the list is now.
+    assert "right" in win.side_button.toolTip()
 
 
 def rendered_columns(win) -> int:
@@ -1645,11 +1646,11 @@ def test_the_side_button_lives_in_the_top_bar(qtbot, gui_settings):
     win = make_window(qtbot, gui_settings)
     assert win.side_button.isVisibleTo(win)
     assert not hasattr(win.file_list, "side_button")
-    assert "right" in win.side_button.toolTip()
+    assert "left" in win.side_button.toolTip()
 
     win.toggle_panel_side()
 
-    assert "left" in win.side_button.toolTip()
+    assert "right" in win.side_button.toolTip()
     assert not win.side_button.icon().isNull()
 
 

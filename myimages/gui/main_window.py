@@ -169,9 +169,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "side_button"):
             self.side_button.setIcon(self.side_icon())
             self.side_button.setToolTip(
-                "File list on the left — click to move it right"
-                if on_left
-                else "File list on the right — click to move it left"
+                "Move the list right" if on_left else "Move the list left"
             )
         if hasattr(self, "file_list"):
             self.file_list.refresh_control_icons()
@@ -301,11 +299,9 @@ class MainWindow(QMainWindow):
         self.action_pdf = self.tool_button(
             icons.pdf, "Combine images into a PDF", self.open_pdf
         )
-        self.action_gif = self.tool_button(
-            icons.gif, "Make a GIF from selected frames", self.open_gif
-        )
+        self.action_gif = self.tool_button(icons.gif, "Make a GIF", self.open_gif)
         self.action_video = self.tool_button(
-            icons.trim, "Video tools (trim, crop, scale, GIF)", self.open_video_tools
+            icons.trim, "Video tools", self.open_video_tools
         )
         self.action_duplicates = self.tool_button(
             icons.duplicates, "Find duplicates", self.open_duplicates

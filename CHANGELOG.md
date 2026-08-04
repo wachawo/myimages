@@ -26,8 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The zoom and fit controls no longer take a strip of their own under the
-  picture: they float over it, bottom left, and stay out of sight until the
-  pointer is over the preview. The resolution stays in the corner where it was.
+  picture: they float over it, bottom left, at the same height as the
+  resolution badge opposite. The resolution stays in the corner where it was.
 - The editor's panes sit on a line of their own above the tools, so the tabs no
   longer compete for width with the things they switch between — every pane's
   row now fits, and the editor's minimum width drops from 509 to 360.
@@ -40,12 +40,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edit holds rotating, mirroring and a new **Resize**: set the picture's size in
   pixels, with the shape locked or free. It says when a resize would enlarge,
   because that invents pixels rather than finding detail.
-- Crop's shapes are buttons that light when they are on, and pressing the lit
-  one releases the lock, so there is no longer a "Free" entry to mean none of
-  them. A field beside them takes a shape no button holds — a print cover is
-  0.7667, which is nobody's camera preset.
+- Crop's shapes are buttons that light when they are on, ordered widest to
+  tallest so the row is one progression through the square: 16:9 to 9:16, with
+  1:1 in the middle. **N:N** at the end holds no shape at all, and pressing a
+  lit button releases the lock as well. A field beside them, sized to match a
+  button, takes a shape no button holds — a print cover is 0.7667, which is
+  nobody's camera preset.
 - Background holds removing the background and removing a watermark, with the
   three cut-out settings behind one button rather than spread across the row.
+- Zooming is now **Ctrl**+wheel rather than Shift+wheel, matching every other
+  application that zooms with a wheel.
+- Every icon's tooltip is a few words rather than a sentence. A tooltip is read
+  at a glance, and one long enough to be a sentence is read as a paragraph and
+  skipped. A test walks the real windows and fails on an icon with no tooltip
+  or one over five words, so neither can creep back in.
+- The folder icon is a folder: a single outline whose tab breaks the top edge.
+  It was a rectangle with two short lines beside it, which read as a box.
 
 
 ### Fixed
