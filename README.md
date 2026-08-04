@@ -125,6 +125,16 @@ segmentation runtime, because a packaged build cannot pip-install into itself;
 the model weights are still fetched on first use. Only the Qt system libraries
 are expected from the host, and the Debian package declares them.
 
+On Windows, `pwsh -File packaging/build_windows.ps1` produces
+`myImages-<ver>-windows-x64.zip`. Unpack it anywhere and run `myimages.exe`;
+everything the app keeps lives under `%USERPROFILE%\.myimages`, so deleting the
+folder removes it completely.
+
+The Windows build is unsigned, so SmartScreen shows *"Windows protected your
+PC"* the first time. Choose **More info**, then **Run anyway**. Signing needs a
+certificate that now requires hardware or a cloud signing service; it is not
+worth it for this project yet.
+
 FFmpeg is not bundled — the prebuilt binaries are GPL, which would change the
 licence of the whole distribution. It stays a `Recommends`, and the app names
 the right install command for the platform you are on.
