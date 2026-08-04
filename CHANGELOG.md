@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.3] - 2026-08-04
 
 ### Added
 
@@ -16,12 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Screenshots of the interface in the README, and `scripts/make_demo_shots.py`
   that regenerates them from the real application so they cannot drift away
   from what it looks like.
-
-### Fixed
-
-- The duplicate finder reported an identical pair twice — once as identical
-  bytes and again as visually similar — pre-checked its extra copy in both, and
-  handed the same path to the deleter twice.
 
 ### Changed
 
@@ -64,9 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The folder icon is a folder: a single outline whose tab breaks the top edge.
   It was a rectangle with two short lines beside it, which read as a box.
 
-
 ### Fixed
 
+- The duplicate finder reported an identical pair twice — once as identical
+  bytes and again as visually similar — pre-checked its extra copy in both, and
+  handed the same path to the deleter twice.
 - A manual re-run of the publish workflow from a tag built every download and
   then attached none of them: the upload step only ran for a real release
   event. 0.0.2 shipped with an empty release because of it and had to be
@@ -207,6 +203,7 @@ First public release.
   installs into the user's own `~/.local/share` without root.
 - Packaging scripts for a `.deb` and an AppImage.
 
-[Unreleased]: https://github.com/wachawo/myImages/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/wachawo/myImages/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/wachawo/myImages/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/wachawo/myImages/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/wachawo/myImages/releases/tag/v0.0.1
