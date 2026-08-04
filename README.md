@@ -113,12 +113,21 @@ is fully unit-tested; the PySide6 UI is tested offscreen with `pytest-qt`.
 ## Build a package
 
 ```bash
-make deb        # -> myimages_<ver>_<arch>.deb   (bundled venv under /opt/myimages)
+pip install pyinstaller
+make deb        # -> myimages_<ver>_<arch>.deb   (installs under /opt/myimages)
 make appimage   # -> myImages-<ver>-x86_64.AppImage
 ```
 
-Both stage a self-contained virtualenv, add a launcher, the `.desktop` file and
-a rendered icon. See `packaging/` for the scripts.
+Both freeze the application with PyInstaller from one shared spec
+(`packaging/myimages.spec`) and wrap the result, so each artifact carries its
+own Python and needs none on the machine it lands on. They also carry the
+segmentation runtime, because a packaged build cannot pip-install into itself;
+the model weights are still fetched on first use. Only the Qt system libraries
+are expected from the host, and the Debian package declares them.
+
+FFmpeg is not bundled — the prebuilt binaries are GPL, which would change the
+licence of the whole distribution. It stays a `Recommends`, and the app names
+the right install command for the platform you are on.
 
 ## Project layout
 
