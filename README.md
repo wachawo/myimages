@@ -135,6 +135,23 @@ PC"* the first time. Choose **More info**, then **Run anyway**. Signing needs a
 certificate that now requires hardware or a cloud signing service; it is not
 worth it for this project yet.
 
+On macOS, `bash packaging/build_macos.sh` produces
+`myImages-<ver>-macos-<arch>.dmg`. Open it and drag the app to Applications.
+Apple Silicon and Intel are separate images: there is no universal2 build of
+PySide6, so each architecture is built on its own machine.
+
+The macOS build is ad-hoc signed but not notarised, so a copy downloaded
+through a browser is quarantined and Gatekeeper reports it as damaged. Clear
+the quarantine flag once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/myImages.app
+```
+
+Since macOS 15 the old right-click → Open bypass no longer works for
+unsigned apps, so this is the way. Proper signing needs an Apple Developer
+account; it is not worth it for this project yet.
+
 FFmpeg is not bundled — the prebuilt binaries are GPL, which would change the
 licence of the whole distribution. It stays a `Recommends`, and the app names
 the right install command for the platform you are on.

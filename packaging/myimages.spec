@@ -14,6 +14,7 @@
 #
 # Build with:  pyinstaller --clean --noconfirm packaging/myimages.spec
 
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +22,12 @@ from PyInstaller.utils.hooks import collect_dynamic_libs
 
 SPEC_DIR = Path(SPECPATH).resolve()
 PROJECT = SPEC_DIR.parent
+MACOS = sys.platform == "darwin"
+
+# The macOS build renders this before invoking PyInstaller, because iconutil
+# only exists there. Absent on every other platform, and absent on a bare
+# `pyinstaller packaging/myimages.spec` run, which stays valid.
+ICNS = SPEC_DIR / "myimages.icns"
 
 # The optional segmentation runtime is vendored so background removal works in a
 # packaged build. It has to be: `sys.executable -m pip` inside a bundle launches
@@ -28,6 +35,12 @@ PROJECT = SPEC_DIR.parent
 # prefix is read-only or root-owned besides. The weights are NOT bundled -- they
 # are 170 MiB that most users never need, and they are fetched at first use into
 # the user's own data directory, which is writable in every deployment.
+VERSION = re.search(
+    r'^__version__ = "(.*)"$',
+    (PROJECT / "myimages" / "__init__.py").read_text(),
+    re.M,
+).group(1)
+
 try:
     import onnxruntime  # noqa: F401
 
@@ -90,7 +103,7 @@ executable = EXE(
     console=not sys.platform.startswith(("win", "darwin")),
 )
 
-COLLECT(
+collected = COLLECT(
     executable,
     analysis.binaries,
     analysis.datas,
@@ -98,3 +111,31 @@ COLLECT(
     upx=False,
     name="myimages",
 )
+
+if MACOS:
+    # A .app bundle, not a bare directory: Finder will not launch a folder, and
+    # the Dock, the application menu and the window title all read this plist.
+    #
+    # Left ad-hoc signed, which is what PyInstaller does when given no identity.
+    # That is not cosmetic on Apple Silicon: an unsigned Mach-O will not execute
+    # there at all. It is still not a Developer ID signature, so Gatekeeper will
+    # quarantine a downloaded copy -- the README says how to clear it.
+    BUNDLE(
+        collected,
+        name="myImages.app",
+        icon=str(ICNS) if ICNS.is_file() else None,
+        bundle_identifier="com.wachawo.myimages",
+        version=VERSION,
+        info_plist={
+            "CFBundleName": "myImages",
+            "CFBundleDisplayName": "myImages",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
+            # Without this the window is drawn at 1x and scaled up, which on a
+            # Retina display looks like a rendering fault rather than a choice.
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
+            "LSApplicationCategoryType": "public.app-category.photography",
+            "NSHumanReadableCopyright": "MIT licensed",
+        },
+    )
