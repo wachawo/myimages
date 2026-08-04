@@ -7,6 +7,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from myimages.core.media import build_media_file
+from myimages.gui import crop_canvas as cc
+from myimages.gui import image_editor as ie
 from myimages.gui.image_editor import (
     ImageEditor,
     copy_destination,
@@ -442,3 +444,296 @@ def test_remove_watermark_ignores_a_second_press_while_busy(qtbot, make_image):
 
     editor.remove_watermark()
     assert calls == []
+
+
+# -- cut-out mode ----------------------------------------------------------
+
+
+def test_entering_cutout_mode_swaps_which_controls_are_shown(qtbot, make_image):
+    """The row already only fits by scrolling, so the modes must not stack."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.show()
+
+    assert editor.crop_button.isVisible()
+    assert not editor.wand_button.isVisible()
+
+    editor.set_mode("cutout")
+    assert not editor.crop_button.isVisible()
+    assert editor.wand_button.isVisible()
+    assert editor.cutout_mode_button.isChecked()
+
+    editor.set_mode("crop")
+    assert editor.crop_button.isVisible()
+    assert not editor.wand_button.isVisible()
+
+
+def test_load_resets_the_mode_between_files(qtbot, make_image):
+    """Opening a second file in cut-out mode would inherit the first's tools."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, name="one.png"))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+
+    editor.load(media_from(make_image, name="two.png"))
+    assert editor.mode == "crop"
+    assert editor.active_tool is None
+    assert editor.edits == []
+
+
+def test_arming_the_same_tool_twice_disarms_it(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+
+    editor.arm_tool("erase")
+    assert editor.active_tool == "erase"
+    assert editor.canvas.interaction == "paint"
+
+    editor.arm_tool("erase")
+    assert editor.active_tool is None
+    assert not editor.eraser_button.isChecked()
+
+
+def test_the_wand_needs_arming_before_a_click_counts(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+
+    editor.on_point_picked(0.5, 0.5)
+    assert editor.edits == []
+
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+    assert len(editor.edits) == 1
+
+
+def test_a_drag_becomes_one_stroke_holding_every_dab(qtbot, make_image):
+    """Undo steps back a gesture, so the dabs of one drag are a single entry."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+    editor.arm_tool("erase")
+
+    editor.on_stroke(0.2, 0.5, True)
+    editor.on_stroke(0.3, 0.5, False)
+    editor.on_stroke(0.4, 0.5, False)
+
+    assert len(editor.edits) == 1
+    # More than the three events: the gaps between them are filled in, or the
+    # stroke would be three separate circles.
+    assert len(editor.edits[0].dabs) >= 3
+
+    editor.on_stroke(0.8, 0.5, True)
+    assert len(editor.edits) == 2
+
+
+def test_undo_drops_the_last_edit_and_says_so_when_empty(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+
+    editor.undo_edit()
+    assert editor.edits == []
+
+    editor.undo_edit()
+    assert editor.status_label.text() == "Nothing to undo"
+
+
+def test_save_names_the_png_it_will_write_over_a_jpeg(qtbot, make_image):
+    """The button closes the editor, so it has to be honest before the click."""
+    editor = make_editor(qtbot)
+    media = media_from(make_image, name="shot.jpg")
+    editor.load(media)
+    assert editor.save_button.text() == "Save"
+
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+
+    assert editor.save_button.text() == "Save as PNG"
+    assert "shot.png" in editor.save_button.toolTip()
+
+    plan = editor.save_plan(copy=False)
+    assert plan is not None and plan.destination.name == "shot.png"
+
+
+def test_save_keeps_its_name_when_the_format_can_hold_alpha(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, name="shot.png"))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+    assert editor.save_button.text() == "Save"
+
+
+def test_saving_a_cutout_writes_a_transparent_file_at_full_size(
+    qtbot, make_image, tmp_path
+):
+    """Only the save touches full resolution; the preview is a smaller copy."""
+    editor = make_editor(qtbot)
+    media = media_from(make_image, name="shot.png", size=(120, 90))
+    editor.load(media)
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+
+    editor.save_over()
+    written = Image.open(media.path)
+    assert written.size == (120, 90)
+    assert written.convert("RGBA").getchannel("A").getextrema()[0] == 0
+
+
+def test_soften_scales_with_the_image_so_preview_and_export_agree(qtbot, make_image):
+    """A fixed pixel radius would export a harder edge than the one approved."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.soften = 4
+    small = Image.new("RGB", (400, 300))
+    large = Image.new("RGB", (1600, 1200))
+    assert editor.soften_pixels(large) == 4 * editor.soften_pixels(small)
+
+
+def test_compare_shows_the_untouched_picture_while_held(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+    edited = editor.canvas.pixmap.toImage()
+
+    editor.set_comparing(True)
+    assert editor.canvas.pixmap.toImage() != edited
+
+    editor.set_comparing(False)
+    assert editor.canvas.pixmap.toImage() == edited
+
+
+def test_the_backdrop_button_cycles_through_every_backdrop(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    seen = []
+    for _ in range(len(cc.BACKDROPS) + 1):
+        seen.append(editor.canvas.backdrop)
+        editor.cycle_backdrop()
+    assert seen[: len(cc.BACKDROPS)] == list(cc.BACKDROPS)
+    assert seen[-1] == seen[0]
+
+
+def test_the_steppers_stay_inside_their_ranges(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+
+    for _ in range(40):
+        editor.step_tolerance(-1)
+    assert editor.tolerance == 0
+    for _ in range(40):
+        editor.step_tolerance(1)
+    assert editor.tolerance == 120
+
+    for _ in range(20):
+        editor.step_brush(-1)
+    assert editor.brush_index == 0
+    for _ in range(20):
+        editor.step_brush(1)
+    assert editor.brush_index == len(ie.BRUSH_STEPS) - 1
+
+    for _ in range(20):
+        editor.step_soften(1)
+    assert editor.soften == 8
+    assert editor.soften_label.text() == "8"
+
+
+def test_a_wand_click_that_takes_everything_says_so(qtbot, make_image):
+    """A tolerance too high for the picture is the common first mistake."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.tolerance = 120
+    editor.on_point_picked(0.5, 0.5)
+    assert "lower Tolerance" in editor.status_label.text()
+
+
+def test_cutout_handlers_do_nothing_before_a_file_is_open(qtbot):
+    """Every one of them is reachable from a stale click after Cancel."""
+    editor = make_editor(qtbot)
+    editor.build_preview_source()
+    editor.refresh_cutout()
+    editor.set_comparing(True)
+    editor.report_coverage()
+    assert editor.preview_source is None
+    assert editor.edits == []
+    assert editor.result_image() is None
+
+
+def test_a_modest_wand_click_reports_what_it_cleared(qtbot, tmp_path: Path):
+    """The fixture image is one flat colour, so a wand there always takes all."""
+    path = tmp_path / "halves.png"
+    picture = Image.new("RGB", (120, 90), (200, 30, 30))
+    picture.paste((30, 30, 200), (60, 0, 120, 90))
+    picture.save(path)
+
+    editor = make_editor(qtbot)
+    editor.load(build_media_file(path))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.tolerance = 8
+    editor.on_point_picked(0.25, 0.5)
+    assert editor.status_label.text().endswith("% cleared")
+
+
+def test_a_stroke_is_ignored_when_no_brush_is_armed(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_stroke(0.5, 0.5, True)
+    assert editor.edits == []
+
+
+def test_a_quick_drag_is_filled_in_rather_than_left_dotted(qtbot, make_image):
+    """Three sparse pointer events must become a stroke, not three circles."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, size=(400, 300)))
+    editor.set_mode("cutout")
+    editor.arm_tool("erase")
+
+    editor.on_stroke(0.1, 0.5, True)
+    editor.on_stroke(0.5, 0.5, False)
+    editor.on_stroke(0.9, 0.5, False)
+
+    assert len(editor.edits) == 1
+    assert len(editor.edits[0].dabs) > 3
+
+
+def test_opening_a_file_converts_the_pixmap_once(qtbot, make_image, monkeypatch):
+    """Two conversions cost about 200 ms each on a 24-megapixel photograph."""
+    import myimages.gui.image_editor as module
+
+    calls: list[int] = []
+    original = module.pixmap_from_pil
+    monkeypatch.setattr(
+        module,
+        "pixmap_from_pil",
+        lambda image: (calls.append(1), original(image))[1],
+    )
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    assert len(calls) == 1
+
+
+def test_opening_a_file_puts_the_save_button_back(qtbot, make_image):
+    """A transparent result left Save renamed; the next file is not transparent."""
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, name="one.jpg"))
+    editor.set_mode("cutout")
+    editor.arm_tool("wand")
+    editor.on_point_picked(0.5, 0.5)
+    assert editor.save_button.text() == "Save as PNG"
+
+    editor.load(media_from(make_image, name="two.jpg"))
+    assert editor.save_button.text() == "Save"

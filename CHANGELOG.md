@@ -9,18 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Background removal in the image editor. A **Cut out** mode with a magic wand
+  (click a colour to clear its region), an eraser, a restore brush that paints
+  the original back, and a Soften control for the edge. Reachable from the
+  toolbar and from **Remove Background** on the right-click menu. Edits are
+  recorded as geometry rather than pixels, so Undo steps back one wand click or
+  one brush stroke at a time and the result is re-rendered at full resolution
+  when you save.
+- Hold **Compare** in the editor to see the picture before the cut, and cycle
+  the backdrop between a checkerboard, white, black and magenta to spot a
+  leftover fringe.
 - The engine behind automatic background removal: the ISNet segmentation model,
   run through ONNX Runtime directly. The weights are fetched once, verified
   against their checksum, into `~/.myimages/models/`. It is an optional extra —
   `pip install "myimages[bgremove]"` — and nothing calls it yet.
-
-
-### Added
-
 - A checkerboard behind transparent pixels in the editor canvas, so a cut-out no
   longer looks like a very dark subject, and a brush outline that follows the
-  cursor at the size the edit will actually have. Nothing switches the canvas
-  into those modes yet.
+  cursor at the size the edit will actually have.
 
 - The mask engine behind background removal: a magic wand that clears a
   connected patch of similar colour, an eraser, a restore brush that paints the
@@ -28,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than pixels, so undo steps back one wand pick or one brush stroke and
   the saved file is re-rendered at full resolution from the same list the
   preview used. Nothing calls it yet.
+
+### Changed
+
+- The name in the top bar is now a wordmark: **MY** in a light blue against
+  **IMAGES** in the interface's own text colour, set larger and heavier. Both
+  colours come from the active theme, so it stays legible on the light one.
+- Removing a watermark no longer freezes the window. It runs off the interface
+  thread behind a progress dialog, and the tools that share the working image —
+  Crop, Remove Watermark, Save and Save as Copy — are disabled until it
+  finishes, so a second press cannot race the first.
+- Save writes a sibling `.png` and leaves the original untouched when the source
+  format cannot store transparency (JPEG, BMP and GIF). Formats that support
+  alpha — PNG, WebP and TIFF — are still overwritten in place. Nothing is
+  flattened without being asked for, and no original is deleted.
 
 ### Fixed
 
@@ -39,17 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opening a file the decoder cannot read, and every failure while saving, are
   now reported. Both used to raise inside a Qt slot, where the exception was
   discarded and the button simply appeared to do nothing.
-
-### Changed
-
-- Removing a watermark no longer freezes the window. It runs off the interface
-  thread behind a progress dialog, and the tools that share the working image —
-  Crop, Remove Watermark, Save and Save as Copy — are disabled until it
-  finishes, so a second press cannot race the first.
-- Save writes a sibling `.png` and leaves the original untouched when the source
-  format cannot store transparency (JPEG, BMP and GIF). Formats that support
-  alpha — PNG, WebP and TIFF — are still overwritten in place. Nothing is
-  flattened without being asked for, and no original is deleted.
 
 ## [0.0.1] - 2026-08-03
 
