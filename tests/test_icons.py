@@ -43,6 +43,7 @@ SIMPLE_FACTORIES = [
     icons.restore_brush,
     icons.compare,
     icons.backdrop,
+    icons.auto_subject,
 ]
 
 

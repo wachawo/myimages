@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Automatic background removal in the editor: one press finds the subject with
+  a model and clears the rest. It needs the optional extra
+  (`pip install "myimages[bgremove]"`) and a one-off model download, and the
+  editor offers both rather than leaving the button inert. The result joins the
+  edit list like any other step, so Undo removes it and the wand, eraser and
+  restore brush still refine it.
 - Background removal in the image editor. A **Cut out** mode with a magic wand
   (click a colour to clear its region), an eraser, a restore brush that paints
   the original back, and a Soften control for the edge. Reachable from the

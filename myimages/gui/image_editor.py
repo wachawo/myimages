@@ -32,8 +32,9 @@ from PySide6.QtWidgets import (
 from myimages import icons
 from myimages.core.media import MediaFile
 from myimages.gui.crop_canvas import BACKDROPS, CropCanvas
+from myimages.gui.dependencies_dialog import DependenciesDialog
 from myimages.gui.task_runner import Runner, threaded_runner
-from myimages.imaging import cutout, save_policy, transform, watermark
+from myimages.imaging import cutout, save_policy, segment, transform, watermark
 from myimages.imaging.transform import CropRect
 
 # Interactive edits run against a copy no larger than this. A wand click folds
@@ -49,6 +50,10 @@ TOLERANCE_STEP = 8
 TOLERANCE_RANGE = (0, 120)
 BRUSH_STEPS = (0.005, 0.01, 0.02, 0.04, 0.08, 0.15)
 SOFTEN_RANGE = (0, 8)
+
+# The download progress dialog counts in steps rather than bytes: a QProgressDialog
+# maximum of 179 million is fine for Qt and useless to read.
+MODEL_STEPS = 100
 
 # One soften step, as a fraction of the image width, so a softened edge looks
 # the same on the preview and in the file that gets written.
@@ -308,6 +313,13 @@ class ImageEditor(QWidget):
         Fewer controls than crop mode, deliberately. The row already only fits by
         scrolling, so a mode that added to it would push Save off the edge.
         """
+        self.subject_button = self.tool_button(
+            icons.auto_subject,
+            "Find the subject with a model and clear everything else",
+            self.remove_background_automatically,
+        )
+        row.addWidget(self.subject_button)
+
         self.tool_group = QButtonGroup(self)
         self.tool_group.setExclusive(False)
         self.wand_button = self.tool_chip(
@@ -356,6 +368,7 @@ class ImageEditor(QWidget):
         row.addWidget(self.compare_button)
         row.addWidget(self.backdrop_button)
         return [
+            self.subject_button,
             self.wand_button,
             self.eraser_button,
             self.restore_button,
@@ -555,6 +568,90 @@ class ImageEditor(QWidget):
             self.edits[-1] = stroke
         self.refresh_cutout()
 
+    def remove_background_automatically(self) -> None:
+        """Let the model find the subject, fetching what it needs on the way.
+
+        Three things can be missing and each says so plainly rather than leaving
+        an inert button: the optional package, the weights, and a working run.
+        The result is appended to the edit list rather than replacing the image,
+        so Undo steps back through it and the hand tools still refine it.
+        """
+        if self.preview_source is None or self.busy:
+            return
+        if not segment.is_available():
+            self.offer_dependency()
+            return
+        if not segment.model_present():
+            self.fetch_model()
+            return
+        self.run_segmentation()
+
+    def offer_dependency(self) -> None:
+        """Explain what is missing and open the place that installs it."""
+        self.status_label.setText(
+            "Automatic removal needs the onnxruntime package — installing it now"
+        )
+        DependenciesDialog(self, runner=self.runner).exec()
+        if segment.is_available():
+            self.status_label.setText("Installed. Press the button again.")
+
+    def fetch_model(self) -> None:
+        """Download the weights once, then segment with them.
+
+        A progress dialog rather than a status line: this is 179 MB, and a
+        silent wait of that length reads as a button that did nothing. The
+        dialog carries a cancel because the wait is long enough to regret.
+        """
+        progress = QProgressDialog(
+            "Fetching the model…", "Cancel", 0, MODEL_STEPS, self
+        )
+        progress.setWindowTitle("Please wait")
+        progress.setAutoClose(False)
+        progress.show()
+
+        def on_progress(received: int, total: int) -> None:
+            progress.setLabelText(
+                f"Fetching the model… {received // 1_000_000} of "
+                f"{total // 1_000_000} MB"
+            )
+            progress.setValue(min(MODEL_STEPS, received * MODEL_STEPS // max(total, 1)))
+
+        def work() -> object:
+            return segment.download_model(on_progress, progress.wasCanceled)
+
+        def finished(result: object) -> None:
+            progress.close()
+            self.set_busy(False)
+            self.status_label.setText("Model ready")
+            self.run_segmentation()
+
+        def failed(message: str) -> None:
+            progress.close()
+            self.set_busy(False)
+            self.status_label.setText(message)
+
+        self.set_busy(True)
+        self.runner(work, finished, failed)
+
+    def run_segmentation(self) -> None:
+        """Run the model over the preview and add its answer to the edit list."""
+        source = self.preview_source
+        if source is None:
+            return
+        self.run_operation(
+            lambda: segment.subject_mask(source),
+            "Finding the subject…",
+            self.on_subject_found,
+        )
+
+    def on_subject_found(self, result: object) -> None:
+        """Append the model's mask, then report how much it took."""
+        if not isinstance(result, Image.Image):
+            return
+        self.edits.append(cutout.SubjectMask(mask=result))
+        self.refresh_cutout()
+        self.report_subject()
+
     def report_coverage(self) -> None:
         """Warn when a wand click took nearly the whole picture."""
         if self.preview_result is None:
@@ -562,6 +659,24 @@ class ImageEditor(QWidget):
         taken = cutout.coverage_fraction(self.preview_result)
         if taken > 0.9:
             self.status_label.setText("That took almost everything — lower Tolerance")
+        else:
+            self.status_label.setText(f"{taken * 100:.0f}% cleared")
+
+    def report_subject(self) -> None:
+        """Say how the model did, without the wand's advice.
+
+        Separate from :meth:`report_coverage` because that one tells the user to
+        lower Tolerance, which is the wand's setting and has nothing to do with
+        the model: taking almost everything means the model found no subject,
+        and the answer is the hand tools rather than a slider.
+        """
+        if self.preview_result is None:
+            return
+        taken = cutout.coverage_fraction(self.preview_result)
+        if taken > 0.9:
+            self.status_label.setText(
+                "The model found almost no subject here — try the wand instead"
+            )
         else:
             self.status_label.setText(f"{taken * 100:.0f}% cleared")
 

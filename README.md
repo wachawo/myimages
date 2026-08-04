@@ -34,7 +34,11 @@ inside the app.
   mark anywhere else. The result opens in the editor, so nothing is written
   until you approve it.
 - **Remove the background**: switch the editor to **Cut out** (or use the wand
-  on the toolbar). Click a colour with the magic wand to clear its region, drag
+  on the toolbar). The first control finds the subject with a model and clears
+  everything else in one press; it needs the optional `bgremove` extra and a
+  one-off download, and the app offers both when you press it. The result is
+  just another step in the edit list, so Undo removes it and the hand tools
+  below correct whatever it got wrong. Click a colour with the magic wand to clear its region, drag
   the eraser to take more away and the restore brush to paint the picture back,
   and soften the edge. Hold **Compare** to see the original, and cycle the
   backdrop between a checkerboard, white, black and magenta to spot a leftover
