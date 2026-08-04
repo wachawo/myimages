@@ -15,6 +15,7 @@ from myimages.gui.image_editor import (
     pixmap_from_pil,
 )
 from myimages.gui.task_runner import synchronous_runner
+from myimages.imaging import cutout, segment
 from myimages.imaging.transform import CropRect
 
 
@@ -665,6 +666,7 @@ def test_cutout_handlers_do_nothing_before_a_file_is_open(qtbot):
     editor.refresh_cutout()
     editor.set_comparing(True)
     editor.report_coverage()
+    editor.report_subject()
     assert editor.preview_source is None
     assert editor.edits == []
     assert editor.result_image() is None
@@ -737,3 +739,189 @@ def test_opening_a_file_puts_the_save_button_back(qtbot, make_image):
 
     editor.load(media_from(make_image, name="two.jpg"))
     assert editor.save_button.text() == "Save"
+
+
+# -- automatic background removal ------------------------------------------
+
+
+def cutout_editor(qtbot, make_image, name="shot.png"):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image, name=name))
+    editor.set_mode("cutout")
+    return editor
+
+
+def test_the_model_button_offers_the_package_when_it_is_missing(
+    qtbot, make_image, monkeypatch
+):
+    """An inert button is the failure this whole branch exists to avoid."""
+    editor = cutout_editor(qtbot, make_image)
+    monkeypatch.setattr("myimages.imaging.segment.is_available", lambda: False)
+    opened: list[bool] = []
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.DependenciesDialog.exec",
+        lambda self: opened.append(True),
+    )
+    editor.remove_background_automatically()
+    assert opened == [True]
+    assert "onnxruntime" in editor.status_label.text()
+    assert editor.edits == []
+
+
+def test_the_model_button_fetches_the_weights_when_they_are_absent(
+    qtbot, make_image, monkeypatch
+):
+    """The package can be present while the 179 MB file is not."""
+    editor = cutout_editor(qtbot, make_image)
+    monkeypatch.setattr("myimages.imaging.segment.is_available", lambda: True)
+    monkeypatch.setattr("myimages.imaging.segment.model_present", lambda: False)
+    fetched: list[bool] = []
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ImageEditor.fetch_model",
+        lambda self: fetched.append(True),
+    )
+    editor.remove_background_automatically()
+    assert fetched == [True]
+
+
+def test_a_failed_download_reports_its_reason(qtbot, make_image, monkeypatch):
+    """SegmentationUnavailable carries a sentence written for a person."""
+    editor = cutout_editor(qtbot, make_image)
+
+    def explode(*args, **kwargs):
+        raise segment.SegmentationUnavailable("The download was interrupted")
+
+    monkeypatch.setattr("myimages.imaging.segment.download_model", explode)
+    editor.fetch_model()
+    assert editor.status_label.text() == "The download was interrupted"
+    assert not editor.busy
+
+
+def test_a_successful_download_goes_straight_on_to_segmenting(
+    qtbot, make_image, monkeypatch, tmp_path
+):
+    editor = cutout_editor(qtbot, make_image)
+    monkeypatch.setattr(
+        "myimages.imaging.segment.download_model", lambda *a, **k: tmp_path / "m.onnx"
+    )
+    ran: list[bool] = []
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ImageEditor.run_segmentation",
+        lambda self: ran.append(True),
+    )
+    editor.fetch_model()
+    assert ran == [True]
+    assert editor.status_label.text() == "Model ready"
+
+
+def test_the_model_result_joins_the_edit_list_rather_than_replacing_the_image(
+    qtbot, make_image, monkeypatch
+):
+    """Undo must step back through it and the brushes must still refine it."""
+    editor = cutout_editor(qtbot, make_image)
+    monkeypatch.setattr("myimages.imaging.segment.is_available", lambda: True)
+    monkeypatch.setattr("myimages.imaging.segment.model_present", lambda: True)
+
+    half = Image.new("L", (1024, 1024), 255)
+    half.paste(0, (0, 0, 512, 1024))
+    monkeypatch.setattr("myimages.imaging.segment.subject_mask", lambda image: half)
+
+    editor.remove_background_automatically()
+    assert len(editor.edits) == 1
+    assert isinstance(editor.edits[0], cutout.SubjectMask)
+    assert editor.preview_result is not None
+    assert editor.preview_result.getpixel((2, 2))[3] == 0
+
+    editor.arm_tool("restore")
+    editor.on_stroke(0.1, 0.1, True)
+    assert len(editor.edits) == 2
+
+    editor.undo_edit()
+    editor.undo_edit()
+    assert editor.edits == []
+
+
+def test_the_model_button_does_nothing_outside_cutout_mode(qtbot, make_image):
+    editor = make_editor(qtbot)
+    editor.load(media_from(make_image))
+    editor.remove_background_automatically()
+    assert editor.edits == []
+
+
+def test_the_download_reports_megabytes_as_it_goes(qtbot, make_image, monkeypatch):
+    """179 MB of silence reads as a button that did nothing."""
+    editor = cutout_editor(qtbot, make_image)
+    labels: list[str] = []
+
+    def fake_download(on_progress=None, should_cancel=None, **kwargs):
+        assert on_progress is not None
+        on_progress(50_000_000, 179_000_000)
+        return None
+
+    monkeypatch.setattr("myimages.imaging.segment.download_model", fake_download)
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.ImageEditor.run_segmentation", lambda self: None
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.QProgressDialog.setLabelText",
+        lambda self, text: labels.append(text),
+    )
+    editor.fetch_model()
+    assert any("50 of 179 MB" in text for text in labels)
+
+
+def test_installing_from_the_offer_says_to_press_again(qtbot, make_image, monkeypatch):
+    """The button is not re-entered automatically: the dialog may install more."""
+    editor = cutout_editor(qtbot, make_image)
+    states = iter([False, True])
+    monkeypatch.setattr(
+        "myimages.imaging.segment.is_available", lambda: next(states, True)
+    )
+    monkeypatch.setattr(
+        "myimages.gui.image_editor.DependenciesDialog.exec", lambda self: 0
+    )
+    editor.remove_background_automatically()
+    assert editor.status_label.text() == "Installed. Press the button again."
+
+
+def test_segmenting_without_a_preview_does_nothing(qtbot):
+    editor = make_editor(qtbot)
+    editor.run_segmentation()
+    assert editor.edits == []
+
+
+def test_a_non_image_result_is_ignored(qtbot, make_image):
+    """The runner hands back whatever the work returned; guard the type."""
+    editor = cutout_editor(qtbot, make_image)
+    editor.on_subject_found(None)
+    assert editor.edits == []
+
+
+def test_a_model_run_that_takes_everything_does_not_blame_tolerance(
+    qtbot, make_image, monkeypatch
+):
+    """Tolerance is the wand's setting; the model does not read it."""
+    editor = cutout_editor(qtbot, make_image)
+    monkeypatch.setattr("myimages.imaging.segment.is_available", lambda: True)
+    monkeypatch.setattr("myimages.imaging.segment.model_present", lambda: True)
+    monkeypatch.setattr(
+        "myimages.imaging.segment.subject_mask",
+        lambda image: Image.new("L", (1024, 1024), 0),
+    )
+    editor.remove_background_automatically()
+    message = editor.status_label.text()
+    assert "Tolerance" not in message
+    assert "no subject" in message
+
+
+def test_a_model_run_that_keeps_the_subject_reports_the_share(
+    qtbot, make_image, monkeypatch
+):
+    editor = cutout_editor(qtbot, make_image)
+    monkeypatch.setattr("myimages.imaging.segment.is_available", lambda: True)
+    monkeypatch.setattr("myimages.imaging.segment.model_present", lambda: True)
+    half = Image.new("L", (1024, 1024), 255)
+    half.paste(0, (0, 0, 512, 1024))
+    monkeypatch.setattr("myimages.imaging.segment.subject_mask", lambda image: half)
+    editor.remove_background_automatically()
+    assert editor.status_label.text().endswith("% cleared")

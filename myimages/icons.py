@@ -625,3 +625,29 @@ def backdrop() -> QIcon:
                 )
 
     return painted(draw)
+
+
+def auto_subject() -> QIcon:
+    """A head and shoulders with a spark: let the model find the subject.
+
+    Deliberately not another wand. The wand beside it is the manual tool, and at
+    22 pixels two wands would be a coin toss; a figure says what this one looks
+    for rather than how it is driven.
+    """
+
+    def draw(p: QPainter) -> None:
+        p.drawEllipse(QRectF(7.2, 3.4, 6.6, 6.6))
+        shoulders = QPainterPath()
+        shoulders.moveTo(3.6, 18.6)
+        shoulders.quadTo(4.2, 12.4, 10.5, 12.4)
+        shoulders.quadTo(16.8, 12.4, 17.4, 18.6)
+        p.drawPath(shoulders)
+        spark = QPainterPath()
+        spark.moveTo(18.6, 2.6)
+        spark.quadTo(19.0, 4.6, 21.0, 5.0)
+        spark.quadTo(19.0, 5.4, 18.6, 7.4)
+        spark.quadTo(18.2, 5.4, 16.2, 5.0)
+        spark.quadTo(18.2, 4.6, 18.6, 2.6)
+        p.drawPath(spark)
+
+    return painted(draw)
