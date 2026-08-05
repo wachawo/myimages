@@ -125,9 +125,11 @@ jobs:
 
   linux-artifacts:
     # The downloadable artifacts. Independent of the PyPI path on purpose: a
-    # packaging failure must not hold up the wheel, and the release-assets job
-    # below is what waits for both.
+    # packaging failure must not hold up the wheel, and neither waits for the
+    # other.
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -159,17 +161,20 @@ jobs:
             apt-get install -y -qq /work/myimages_*_amd64.deb
             myimages --version
           '
-      - name: Upload
-        uses: actions/upload-artifact@v7
+      - name: Attach to the release
+        # As soon as this platform's files exist, not when the slowest one
+        # catches up. A queued Intel runner then costs the release nothing but
+        # its own download, and adds it whenever it finally arrives.
+        if: ${{ github.event_name == 'release' || github.ref_type == 'tag' }}
+        uses: ./.github/actions/attach-release-assets
         with:
-          name: release-linux
-          path: |
-            myimages_*.deb
-            myImages-*-x86_64.AppImage
-          if-no-files-found: error
+          files: "myimages_*.deb myImages-*-x86_64.AppImage"
+          token: ${{ github.token }}
 
   windows-artifact:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -182,111 +187,109 @@ jobs:
           pip install pyinstaller
       - name: Build the zip
         run: pwsh -File packaging/build_windows.ps1
-      - name: Upload
-        uses: actions/upload-artifact@v7
+      - name: Attach to the release
+        # As soon as this platform's files exist, not when the slowest one
+        # catches up. A queued Intel runner then costs the release nothing but
+        # its own download, and adds it whenever it finally arrives.
+        if: ${{ github.event_name == 'release' || github.ref_type == 'tag' }}
+        uses: ./.github/actions/attach-release-assets
         with:
-          name: release-windows
-          path: myImages-*-windows-x64.zip
-          if-no-files-found: error
+          files: "myImages-*-windows-x64.zip"
+          token: ${{ github.token }}
 
   macos-artifact:
     # Apple Silicon. There is no universal2 wheel for PySide6, so it is one
-    # build per architecture rather than one build for both, and this is the
-    # one the release waits for.
+    # build per architecture rather than one build for both.
     runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Install project and build tooling
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[bgremove,trash]"
-          pip install pyinstaller
-      - name: Build the disk image
-        run: bash packaging/build_macos.sh
-      - name: Upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-macos-arm64
-          path: myImages-*-macos-*.dmg
-          if-no-files-found: error
-
-  macos-intel-artifact:
-    # Intel, best-effort, and deliberately *not* in release-assets' `needs`.
-    #
-    # macos-13 is the last Intel runner GitHub offers and is being retired. On
-    # 0.0.3 it sat queued and never started, and because a job that never gets
-    # a runner has not failed, `continue-on-error` did nothing for it: the whole
-    # release stayed behind it with every other artifact already built and
-    # waiting. Nothing waits for it now. When it does produce a disk image, a
-    # re-run of this workflow from the tag attaches it alongside the rest.
-    runs-on: macos-13
-    continue-on-error: true
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Install project and build tooling
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[bgremove,trash]"
-          pip install pyinstaller
-      - name: Build the disk image
-        run: bash packaging/build_macos.sh
-      - name: Upload
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-macos-x86_64
-          path: myImages-*-macos-*.dmg
-          if-no-files-found: error
-
-  release-assets:
-    # Attaching the files is the only step here that needs write access, so it
-    # is the only job that gets it.
-    needs: [linux-artifacts, windows-artifact, macos-artifact]
-    # Runs even when one platform failed. The four builds are independent, and a
-    # queued or flaky macOS runner should not cost the release its Linux and
-    # Windows downloads; the step below still fails if nothing at all was
-    # produced, and a missing platform is visible in the release itself.
-    #
-    # A manual run counts too, as long as it was started from a tag. The retry
-    # path exists for a build that died half way, and a retry that rebuilds
-    # every artifact and then attaches none of them is not one -- 0.0.2 shipped
-    # with an empty release for exactly this reason and had to be filled in by
-    # hand. A run started from a branch has no release to attach to and is
-    # skipped, which is what the build job already refuses to do.
-    if: ${{ !cancelled() && (github.event_name == 'release' || github.ref_type == 'tag') }}
-    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download every artifact
-        uses: actions/download-artifact@v8
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          path: assets
-          merge-multiple: true
-      - name: Attach them to the release
+          python-version: "3.12"
+      - name: Install project and build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[bgremove,trash]"
+          pip install pyinstaller
+      - name: Build the disk image
+        run: bash packaging/build_macos.sh
+      - name: Attach to the release
+        # As soon as this platform's files exist, not when the slowest one
+        # catches up. A queued Intel runner then costs the release nothing but
+        # its own download, and adds it whenever it finally arrives.
+        if: ${{ github.event_name == 'release' || github.ref_type == 'tag' }}
+        uses: ./.github/actions/attach-release-assets
+        with:
+          files: "myImages-*-macos-*.dmg"
+          token: ${{ github.token }}
+
+  macos-intel-artifact:
+    # Intel, best-effort, and depended on by nothing.
+    #
+    # macos-13 is the last Intel runner GitHub offers and is being retired. On
+    # 0.0.3 it never got a runner at all: it sat queued for hours while the
+    # other three platforms finished in four minutes. Because a job that never
+    # starts has not failed, `continue-on-error` did nothing for it, and the
+    # release had no downloads on it whatsoever until they were attached by
+    # hand. Now every build attaches its own files, so this one can only add a
+    # disk image -- whenever it arrives -- and never withhold the rest.
+    runs-on: macos-13
+    continue-on-error: true
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install project and build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[bgremove,trash]"
+          pip install pyinstaller
+      - name: Build the disk image
+        run: bash packaging/build_macos.sh
+      - name: Attach to the release
+        # As soon as this platform's files exist, not when the slowest one
+        # catches up. A queued Intel runner then costs the release nothing but
+        # its own download, and adds it whenever it finally arrives.
+        if: ${{ github.event_name == 'release' || github.ref_type == 'tag' }}
+        uses: ./.github/actions/attach-release-assets
+        with:
+          files: "myImages-*-macos-*.dmg"
+          token: ${{ github.token }}
+
+  release-check:
+    # Uploads nothing. Every build attaches its own files as they appear, so
+    # all that is left to check centrally is that *something* did -- a release
+    # with no downloads on it is the failure worth being loud about, and with
+    # the uploads spread across four jobs nothing else would notice.
+    #
+    # The Intel build is absent from `needs` on purpose: waiting for it is the
+    # bug this replaced.
+    needs: [linux-artifacts, windows-artifact, macos-artifact]
+    # Runs even when a platform failed, and on a manual run started from a tag.
+    # A run started from a branch has no release to look at and is skipped,
+    # which is what the build job already refuses to do.
+    if: ${{ !cancelled() && (github.event_name == 'release' || github.ref_type == 'tag') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: The release must have downloads on it
         env:
           GH_TOKEN: ${{ github.token }}
-          # The release event carries the tag; a manual run has it as the ref it
-          # was started from, which the job condition has already required.
           RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          files=(assets/*)
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "::error::No artifacts were produced."
+          attached="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name')"
+          if [ -z "$attached" ]; then
+            echo "::error::$RELEASE_TAG has no downloads attached to it."
             exit 1
           fi
-          printf '  %s\n' "${files[@]}"
-          # --clobber so a re-run after a partial failure replaces rather than
-          # refusing; unlike PyPI, release assets can be overwritten.
-          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          echo "$attached"
 
   publish:
     # Separate job so the OIDC token is minted only here. Nothing in this job

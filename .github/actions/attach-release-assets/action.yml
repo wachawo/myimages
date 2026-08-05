@@ -1,0 +1,41 @@
+name: Attach release assets
+description: >-
+  Upload the files this job just built to the release for the current tag, so a
+  download appears as soon as it exists rather than when the slowest platform
+  catches up.
+
+inputs:
+  files:
+    description: Whitespace-separated globs of the files to attach.
+    required: true
+  token:
+    description: A token carrying contents:write on this repository.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Upload to the release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        # The release event carries the tag; a manual run has it as the ref it
+        # was started from, which the calling step has already required.
+        RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        PATTERNS: ${{ inputs.files }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        # Deliberately unquoted: PATTERNS holds globs that have to be split and
+        # expanded here, which is the one thing this action is for.
+        # shellcheck disable=SC2206
+        files=($PATTERNS)
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "::error::This job produced nothing matching: $PATTERNS"
+          exit 1
+        fi
+        printf 'attaching to %s:\n' "$RELEASE_TAG"
+        printf '  %s\n' "${files[@]}"
+        # --clobber so a re-run after a partial failure replaces rather than
+        # refusing; unlike PyPI, release assets can be overwritten.
+        gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"

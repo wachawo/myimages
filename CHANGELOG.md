@@ -13,8 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   being retired by GitHub; on 0.0.3 it never got a runner at all, and because a
   job that never starts has not failed, marking it `continue-on-error` did
   nothing — the Linux, Windows and Apple Silicon downloads sat built and
-  unattached waiting for it. The Intel build is now a job of its own that
-  nothing waits for, so it can only ever add a download, never withhold one.
+  unattached waiting for it, and had to be put on the release by hand.
+  Each platform now attaches its own files the moment they exist, rather than
+  one job collecting everything at the end, so a download appears as soon as it
+  is built and the slowest platform costs the others nothing. A final check
+  refuses a release that ended up with no downloads at all.
 
 
 ## [0.0.3] - 2026-08-04
