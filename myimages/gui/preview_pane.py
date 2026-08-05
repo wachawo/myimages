@@ -76,10 +76,10 @@ def load_pixmap(path: str | Path) -> QPixmap:
 OVERLAY_ICON = 14
 OVERLAY_PADDING = 4
 
-# The favourite star on the photograph. Smaller than the badge it echoes on a
-# thumbnail: this one sits over a whole picture rather than a 128px tile, and
-# at the size it was it read as a control rather than as a mark.
-OVERLAY_STAR = 16
+# The favourite star on the photograph. Bigger than the badge on a thumbnail,
+# not smaller: a thumbnail is 128 pixels of picture and this is the whole of it,
+# so the same mark that is plain on a tile is a speck in the corner here.
+OVERLAY_STAR = 24
 
 # Pages rendered per batch: enough to fill a few screens, small enough that a
 # huge document opens instantly instead of freezing while every page rasterises.

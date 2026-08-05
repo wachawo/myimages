@@ -79,6 +79,26 @@ GRID_MINIMUM_ICON = 48
 GRID_CELL = GRID_ICON + 4
 GRID_PADDING = GRID_CELL - GRID_ICON
 LIST_STAR = 14
+
+# The marks drawn onto a thumbnail, as a fraction of the tile's width, with a
+# floor for the smallest column count. They sit on somebody's photograph, so
+# they are as small as they can be and still be read: a badge that takes an
+# eighth of the tile is a sticker over the picture rather than a note about it.
+BADGE_STAR = 0.105
+BADGE_STAR_LEAST = 7
+BADGE_CHECK = 0.078
+BADGE_CHECK_LEAST = 6
+
+# The star's dark edge, as a fraction of the star. Fixed at 1.4px it was most
+# of a small badge: at a 64px tile only 18% of the mark came out gold and the
+# star read as a dark outline with a yellow smear in it.
+BADGE_EDGE = 0.085
+
+# How deep the star's notches cut, as a fraction of its radius. A star is
+# almost all perimeter at eight pixels, so the textbook 0.42 left the dark edge
+# holding more of the mark than the gold did and it read as a hollow outline.
+# Fatter points, same footprint, and the gold carries.
+BADGE_STAR_WAIST = 0.48
 COLUMN_CHOICES: tuple[int, ...] = (1, 2, 3, 4)
 # What the panel costs before any thumbnail fits: the sidebar's own margins,
 # the view's frame, and the vertical scrollbar that a full folder always shows.
@@ -501,10 +521,10 @@ class FileListPanel(QWidget):
         painter = QPainter(result)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         width = result.width()
-        size = max(9, round(width * 0.15))
+        size = max(BADGE_STAR_LEAST, round(width * BADGE_STAR))
         centre = QPointF(width - size - 3, size + 3)
-        star = icons.star_points(centre.x(), centre.y(), size, size * 0.42)
-        painter.setPen(QPen(QColor(icons.FAVOURITE_EDGE), 1.4))
+        star = icons.star_points(centre.x(), centre.y(), size, size * BADGE_STAR_WAIST)
+        painter.setPen(QPen(QColor(icons.FAVOURITE_EDGE), max(0.8, size * BADGE_EDGE)))
         painter.setBrush(QColor(icons.FAVOURITE_COLOUR))
         painter.drawPath(star)
         painter.end()
@@ -516,9 +536,9 @@ class FileListPanel(QWidget):
         painter = QPainter(result)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         width, height = result.width(), result.height()
-        radius = max(7, round(width * 0.11))
+        radius = max(BADGE_CHECK_LEAST, round(width * BADGE_CHECK))
         centre = QPointF(radius + 3, height - radius - 3)
-        painter.setPen(QPen(QColor("#ffffff"), 2))
+        painter.setPen(QPen(QColor("#ffffff"), max(1.2, radius * 0.2)))
         painter.setBrush(QColor("#4f8cff") if selected else QColor(0, 0, 0, 90))
         painter.drawEllipse(centre, radius, radius)
         if selected:

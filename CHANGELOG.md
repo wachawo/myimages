@@ -13,9 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read as a control that happened to be switched on; the mark on a thumbnail
   was already gold, so the two disagreed about what a favourite looks like.
   Both now take the same colour from one place, in either theme.
-- The star on the photograph lost the dark disc behind it and is smaller. It
-  keeps the thumbnail badge's dark edge instead, which is what makes it
-  findable over a bright sky without a button drawn on the picture.
+- The star on the photograph lost the dark disc behind it and grew. It keeps
+  the thumbnail badge's dark edge instead, which is what makes it findable over
+  a bright sky without a button drawn on the picture.
+- The favourite star and the selection tick on a thumbnail are smaller. They
+  sit on somebody's photograph, and at the size they were they read as stickers
+  over the picture rather than as notes about it. The star's dark edge now
+  scales with the star and its points are fatter: fixed at 1.4px it was most of
+  a small badge, so on a narrow panel only a fifth of the mark came out gold
+  and the star read as a hollow outline.
 
 ### Fixed
 
