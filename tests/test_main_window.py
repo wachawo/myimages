@@ -46,6 +46,15 @@ def video_media(path) -> MediaFile:
     return build_media_file(path)
 
 
+def build_nested_gallery(settings, tmp_path) -> None:
+    """Point ``settings`` at top.png, with deep.png hidden in a sub-folder."""
+    root = tmp_path / "tree"
+    (root / "nested").mkdir(parents=True)
+    Image.new("RGB", (10, 10), (0, 0, 0)).save(root / "top.png")
+    Image.new("RGB", (10, 10), (0, 0, 0)).save(root / "nested" / "deep.png")
+    settings.last_folder = str(root)
+
+
 # -- source handling -------------------------------------------------------
 
 
@@ -74,25 +83,20 @@ def test_folder_controls_are_always_available(qtbot, gui_settings):
     # A folder is the only source, so its controls are never hidden.
     assert win.folder_input.isVisibleTo(win)
     assert win.browse_button.isVisibleTo(win)
-    assert win.recursive_button.isVisibleTo(win)
     assert win.media_files == []  # no folder set yet -> nothing scanned
 
 
-def test_toggle_recursive_changes_what_is_found(qtbot, gui_settings, tmp_path):
-    root = tmp_path / "tree"
-    (root / "nested").mkdir(parents=True)
-    Image.new("RGB", (10, 10), (0, 0, 0)).save(root / "top.png")
-    Image.new("RGB", (10, 10), (0, 0, 0)).save(root / "nested" / "deep.png")
-    gui_settings.last_folder = str(root)
+def test_recursive_setting_changes_what_is_found(qtbot, gui_settings, tmp_path):
+    build_nested_gallery(gui_settings, tmp_path)
     win = make_window(qtbot, gui_settings)
     assert [f.name for f in win.media_files] == ["top.png"]
 
-    win.toggle_recursive(True)  # re-scans, so the sub-folder shows up
-    assert gui_settings.recursive_scan is True
+    gui_settings.recursive_scan = True
+    win.load_source()  # every rescan reads the setting afresh
     assert sorted(f.name for f in win.media_files) == ["deep.png", "top.png"]
 
-    win.toggle_recursive(False)
-    assert gui_settings.recursive_scan is False
+    gui_settings.recursive_scan = False
+    win.load_source()
     assert [f.name for f in win.media_files] == ["top.png"]
 
 
@@ -786,9 +790,13 @@ def test_unreadable_folder_opens_empty_instead_of_crashing(
         os.chmod(locked, 0o755)
 
 
-def test_settings_dialog_resyncs_recursive_button(qtbot, gui_settings, monkeypatch):
+def test_settings_dialog_rescans_with_sub_folders(
+    qtbot, gui_settings, tmp_path, monkeypatch
+):
+    """The Settings checkbox is the only way in now, so it must take effect."""
+    build_nested_gallery(gui_settings, tmp_path)
     win = make_window(qtbot, gui_settings)
-    assert win.recursive_button.isChecked() is False
+    assert [f.name for f in win.media_files] == ["top.png"]
     from myimages.gui.settings_dialog import SettingsDialog
 
     def fake_exec(self):
@@ -798,7 +806,8 @@ def test_settings_dialog_resyncs_recursive_button(qtbot, gui_settings, monkeypat
     monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
     win.open_settings()
     assert gui_settings.recursive_scan is True
-    assert win.recursive_button.isChecked() is True  # top bar follows the dialog
+    # Applying the dialog rescans, so the sub-folder shows up without a reload.
+    assert sorted(f.name for f in win.media_files) == ["deep.png", "top.png"]
 
 
 def test_rename_fallback_ignores_filtered_out_files(
@@ -992,7 +1001,8 @@ def test_scanning_sub_folders_repoints_the_monitor(qtbot, gui_settings, image_di
     win = gallery_window(qtbot, gui_settings, image_dir)
     assert win.monitor.watcher.directories() == [str(image_dir)]
 
-    win.toggle_recursive(True)
+    gui_settings.recursive_scan = True
+    win.load_source()
 
     assert win.monitor.recursive is True
     assert set(win.monitor.watcher.directories()) == {str(image_dir), str(nested)}

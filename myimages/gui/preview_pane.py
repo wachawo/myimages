@@ -271,8 +271,11 @@ class PreviewPane(QWidget):
         self.fit_button = self.make_control(
             icons.fit, "Fit to window", self.image_view.fit
         )
+        # playback_icon rather than icons.play: the button carries two glyphs,
+        # and a theme change mid-clip must not put the play arrow back on a
+        # video that is playing.
         self.play_button = self.make_control(
-            icons.play, "Play / pause", self.toggle_playback
+            self.playback_icon, "Play / pause", self.toggle_playback
         )
         for button in (
             self.zoom_out_button,
@@ -281,6 +284,12 @@ class PreviewPane(QWidget):
             self.play_button,
         ):
             controls.addWidget(button)
+
+        # Connected here rather than beside the player: both slots write to the
+        # controls built just above.
+        if self.media_player is not None:
+            self.media_player.playbackStateChanged.connect(self.update_play_icon)
+            self.media_player.errorOccurred.connect(self.report_playback_error)
         self.update_controls(MediaKind.OTHER)
 
     def enable_context_menu(self) -> None:
@@ -464,6 +473,15 @@ class PreviewPane(QWidget):
         if self.media_player is not None and self.video_widget is not None:
             self.media_player.setSource(QUrl.fromLocalFile(str(media_file.path)))
             self.stack.setCurrentWidget(self.video_widget)
+            # Loading is not enough: the backend decodes nothing until playback
+            # starts, so the sink is never handed a frame and the pane stays
+            # blank. Playing is also the honest preview of a video — holding
+            # the first frame would mean starting the decoder and stopping it
+            # again the moment a frame appeared, to show a still of a file
+            # whose point is that it moves. Nothing runs on unattended:
+            # show_media stops the player when the file changes, and the button
+            # beside the picture pauses it.
+            self.media_player.play()
         else:
             self.message_label.setText(
                 f"{media_file.name}\n\nVideo preview needs Qt Multimedia.\n"
@@ -532,6 +550,33 @@ class PreviewPane(QWidget):
     def stop_playback(self) -> None:
         if self.media_player is not None:
             self.media_player.stop()
+
+    def playback_icon(self) -> QIcon:
+        """The glyph for what the play button will do to the current clip."""
+        playing = self.media_player is not None and self.media_player.isPlaying()
+        return icons.pause() if playing else icons.play()
+
+    def update_play_icon(self, playback_state: QMediaPlayer.PlaybackState) -> None:
+        """Keep the play button showing what the player is really doing.
+
+        The state comes back off the player rather than out of the signal, so
+        this and a theme refresh — which has no state to hand it — decide the
+        glyph the same way.
+        """
+        self.play_button.setIcon(self.playback_icon())
+
+    def report_playback_error(self, error: QMediaPlayer.Error, message: str) -> None:
+        """Say why a video will not play, rather than leaving an empty pane.
+
+        A codec the backend cannot decode fails in silence: the sink is never
+        handed a frame, so without this the file looks the same as one that is
+        merely still. The reason goes where the missing-backend hint goes.
+        """
+        heading = f"{self.current_media.name}\n\n" if self.current_media else ""
+        reason = message or "The backend could not decode it."
+        self.message_label.setText(f"{heading}This video cannot be played.\n{reason}")
+        self.stack.setCurrentWidget(self.message_label)
+        self.update_controls(MediaKind.OTHER)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         # Reached only when a non-image view is shown (the image view handles

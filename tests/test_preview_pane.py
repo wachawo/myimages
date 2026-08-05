@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QIcon, QWheelEvent
-from PySide6.QtWidgets import QLabel, QToolButton
+from PySide6.QtWidgets import QLabel, QToolButton, QWidget
 
+from myimages import icons
 from myimages.core.media import MediaFile, MediaKind, build_media_file
 from myimages.core.plugins import PluginRegistry
 from myimages.gui.preview_pane import (
@@ -32,9 +33,13 @@ class FakePlayer:
         self.played = False
         self.paused = False
         self.stopped = False
+        self.source = None
 
     def isPlaying(self) -> bool:
         return self.playing
+
+    def setSource(self, url) -> None:
+        self.source = url
 
     def play(self) -> None:
         self.played = True
@@ -50,6 +55,29 @@ def make_pane(qtbot) -> PreviewPane:
     pane = PreviewPane()
     qtbot.addWidget(pane)
     return pane
+
+
+def fake_video_pane(qtbot) -> tuple[PreviewPane, FakePlayer]:
+    """A pane with a FakePlayer and a stand-in video widget in its stack.
+
+    The suite runs with MYIMAGES_NO_VIDEO set, so the real player is never
+    built; this puts the video branch back within reach without QtMultimedia.
+    """
+    pane = make_pane(qtbot)
+    fake = FakePlayer()
+    pane.media_player = cast(Any, fake)
+    pane.video_widget = QWidget()
+    pane.stack.addWidget(pane.video_widget)
+    return pane, fake
+
+
+def icon_bytes(icon: QIcon) -> bytes:
+    """Rasterise an icon, so two of them can be compared for real.
+
+    QIcon has no useful equality, and both glyphs are drawn by the same
+    factory; only the pixels tell them apart.
+    """
+    return icon.pixmap(QSize(16, 16)).toImage().constBits().tobytes()
 
 
 def video_media(tmp_path) -> MediaFile:
@@ -249,6 +277,108 @@ def test_real_playback_helpers_do_not_raise(qtbot, tmp_path):
     # Exercise the real helpers with whatever backend is configured.
     pane.toggle_playback()
     pane.stop_playback()
+
+
+def test_selecting_a_video_starts_it_playing(qtbot, tmp_path):
+    """Loading the source is not enough. The backend decodes nothing until
+    playback starts, so a video that is only loaded shows an empty pane."""
+    pane, fake = fake_video_pane(qtbot)
+    pane.show_media(video_media(tmp_path))
+    assert pane.stack.currentWidget() is pane.video_widget
+    assert fake.source is not None
+    assert "clip.mp4" in fake.source.toLocalFile()
+    assert fake.played is True
+
+
+def test_moving_to_another_file_stops_the_video(qtbot, tmp_path, make_image):
+    """Nothing is left running behind the user: the clip that autoplayed must
+    not still be decoding once its file is off the screen."""
+    pane, fake = fake_video_pane(qtbot)
+    pane.show_media(video_media(tmp_path))
+    fake.stopped = False
+    pane.show_media(build_media_file(make_image()))
+    assert fake.stopped is True
+
+
+# -- a video the backend cannot decode -------------------------------------
+
+
+def test_playback_error_puts_the_reason_on_the_message_label(qtbot, tmp_path):
+    """Without this the file is a black rectangle and nothing says why."""
+    pane, fake = fake_video_pane(qtbot)
+    pane.show_media(video_media(tmp_path))
+    pane.report_playback_error(None, "Could not open file")
+    assert pane.stack.currentWidget() is pane.message_label
+    text = pane.message_label.text()
+    assert "clip.mp4" in text
+    assert "cannot be played" in text
+    assert "Could not open file" in text
+
+
+def test_playback_error_without_a_reason_still_explains(qtbot, tmp_path):
+    """Qt does not always supply a string; an empty one must not read as a
+    truncated message."""
+    pane, fake = fake_video_pane(qtbot)
+    pane.show_media(video_media(tmp_path))
+    pane.report_playback_error(None, "")
+    assert "could not decode" in pane.message_label.text()
+
+
+def test_a_failed_video_keeps_no_controls_over_its_message(qtbot, tmp_path):
+    """A play button over an error is dead chrome: pressing it does nothing."""
+    pane, fake = fake_video_pane(qtbot)
+    pane.show_media(video_media(tmp_path))
+    pane.report_playback_error(None, "Could not open file")
+    assert not pane.play_button.isVisibleTo(pane.controls_bar)
+    assert not pane.controls_bar.isVisibleTo(pane)
+
+
+def test_playback_error_before_any_file_does_not_raise(qtbot):
+    """The signal can outlive the selection; it must still say something."""
+    pane, fake = fake_video_pane(qtbot)
+    pane.report_playback_error(None, "Could not open file")
+    assert "Could not open file" in pane.message_label.text()
+
+
+# -- the play button reflects the player -----------------------------------
+
+
+def test_the_two_playback_glyphs_are_not_the_same_picture(qtbot):
+    """Guards every icon assertion below: if play and pause rendered alike,
+    they would all pass while the button never changed."""
+    assert icon_bytes(icons.play()) != icon_bytes(icons.pause())
+
+
+def test_play_button_shows_pause_while_the_video_plays(qtbot):
+    pane, fake = fake_video_pane(qtbot)
+    fake.playing = True
+    pane.update_play_icon(None)
+    assert icon_bytes(pane.play_button.icon()) == icon_bytes(icons.pause())
+
+
+def test_play_button_shows_play_again_once_the_video_stops(qtbot):
+    pane, fake = fake_video_pane(qtbot)
+    fake.playing = True
+    pane.update_play_icon(None)
+    fake.playing = False
+    pane.update_play_icon(None)
+    assert icon_bytes(pane.play_button.icon()) == icon_bytes(icons.play())
+
+
+def test_play_button_shows_play_when_there_is_no_player(qtbot):
+    pane = make_pane(qtbot)
+    pane.media_player = None
+    assert icon_bytes(pane.playback_icon()) == icon_bytes(icons.play())
+
+
+def test_a_theme_change_leaves_the_pause_glyph_on_a_playing_video(qtbot):
+    """refresh_icons redraws every button from its factory. A fixed play icon
+    there would put the play arrow back on a video that is playing."""
+    pane, fake = fake_video_pane(qtbot)
+    fake.playing = True
+    pane.update_play_icon(None)
+    pane.refresh_icons()
+    assert icon_bytes(pane.play_button.icon()) == icon_bytes(icons.pause())
 
 
 # -- favourite overlay star ------------------------------------------------

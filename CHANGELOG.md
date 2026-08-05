@@ -22,9 +22,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scales with the star and its points are fatter: fixed at 1.4px it was most of
   a small badge, so on a narrow panel only a fifth of the mark came out gold
   and the star read as a hollow outline.
+- The sub-folders toggle is gone from the top bar. Scanning sub-folders is a
+  property of the folder you opened rather than something to flick on and off
+  beside it, and it was already in Settings as "Scan sub-folders", which is now
+  the only place it lives. Nothing about the scanning itself changed.
+- The editor's panes are labelled EDIT, CROP and BACKGROUND. In mixed case they
+  read as three more of the words on the line below them, at the same size and
+  weight as the tools they switch between; capitals say the row is a heading,
+  which is what the settings dialog's section titles already do. Their side
+  padding is tighter to match.
 
 ### Fixed
 
+- Selecting a video showed an empty pane. The preview loaded the file and
+  switched to the video widget but never started playback, and the backend
+  decodes nothing until it does, so the sink was never handed a frame. A
+  selected video now plays; the button beside the picture pauses it, and
+  leaving the file stops it as before.
+- A video the backend cannot decode said so instead of showing a black
+  rectangle. The reason now goes on the message label, where the hint about a
+  missing Qt Multimedia already went.
+- The play button shows a pause mark while a video is playing. It had only ever
+  shown the play arrow, including on the clip it would have paused.
 - A queued Intel macOS runner held the whole release behind it. `macos-13` is
   being retired by GitHub; on 0.0.3 it never got a runner at all, and because a
   job that never starts has not failed, marking it `continue-on-error` did

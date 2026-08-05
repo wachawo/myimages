@@ -264,18 +264,10 @@ class MainWindow(QMainWindow):
         self.browse_button = self.tool_button(
             icons.open_folder, "Choose folder", self.browse_folder
         )
-        self.recursive_button = self.tool_button(
-            icons.subfolders,
-            "Include sub-folders when scanning",
-            self.toggle_recursive,
-        )
-        self.recursive_button.setCheckable(True)
-        self.recursive_button.setChecked(self.settings.recursive_scan)
         self.side_button = self.tool_button(
             self.side_icon, "Move the file list", self.toggle_panel_side
         )
         layout.addWidget(self.browse_button)
-        layout.addWidget(self.recursive_button)
         layout.addWidget(self.side_button)
 
         layout.addSpacing(10)
@@ -379,10 +371,6 @@ class MainWindow(QMainWindow):
             QShortcut(sequence, self, handler)
 
     # -- source handling ---------------------------------------------------
-
-    def toggle_recursive(self, checked: bool) -> None:
-        self.settings.recursive_scan = checked
-        self.load_source()
 
     def browse_folder(self) -> None:
         start = self.folder_input.text() or str(Path.home())
@@ -911,7 +899,6 @@ class MainWindow(QMainWindow):
         for key, value in dialog.values().items():
             setattr(self.settings, key, value)
         self.loader.size = self.settings.thumbnail_size
-        self.recursive_button.setChecked(self.settings.recursive_scan)
         save_settings(self.settings)
         self.apply_theme()
         self.load_source()

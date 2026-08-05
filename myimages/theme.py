@@ -206,8 +206,12 @@ QScrollBar::handle:horizontal {{
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
+/* Tighter at the sides than a tab bar usually is, because it was asked for and
+   because nothing here needs the room: the bar sits alone on its line, and at
+   the editor's minimum width of 360px the widest of the three still fits with
+   space to spare. It is a look, not a fix -- 14px was not crowding anything. */
 QTabBar::tab {{
-  background: transparent; padding: 8px 14px; color: {scheme.muted};
+  background: transparent; padding: 8px 9px; color: {scheme.muted};
   border-bottom: 2px solid transparent;
 }}
 QTabBar::tab:selected {{

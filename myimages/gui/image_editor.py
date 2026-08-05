@@ -71,11 +71,18 @@ SOFTEN_PER_STEP = 0.0016
 
 # The three panes. Splitting them is what makes each row fit: one row carrying
 # every tool wanted 1191 pixels against the 1006 the window gives it.
+#
+# In capitals in the string, not by a stylesheet "text-transform". Qt 6.11 does
+# honour that property on a tab, but this package declares PySide6 6.6 and has
+# no lockfile, so the Qt that runs it is whatever pip resolved -- and a version
+# that drops the property silently shows three differently worded, differently
+# sized tabs. Spelling it out also keeps tabText saying what the tab reads,
+# which is what a screen reader announces and what a test can assert on.
 MODES: tuple[str, ...] = ("edit", "crop", "background")
 MODE_LABELS: dict[str, str] = {
-    "edit": "Edit",
-    "crop": "Crop",
-    "background": "Background",
+    "edit": "EDIT",
+    "crop": "CROP",
+    "background": "BACKGROUND",
 }
 
 # What a press on the canvas means in each pane with no cut-out tool armed.

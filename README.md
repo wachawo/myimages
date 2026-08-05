@@ -37,8 +37,8 @@ paints, so they cannot drift away from what it actually looks like.
   set in whole thumbnail columns — one to four — so the grid always fills the
   panel instead of leaving a ragged strip of empty space.
 - **Edit images inline** under the preview (double-click a thumbnail, or the
-  pencil icon), in three panes: **Edit** rotates, mirrors and resizes,
-  **Crop** locks the box to a shape and applies it, **Background** cuts the
+  pencil icon), in three panes: **EDIT** rotates, mirrors and resizes,
+  **CROP** locks the box to a shape and applies it, **BACKGROUND** cuts the
   subject out and lifts watermarks. Then **Save** (overwrite) or
   **Save as Copy**; plus format conversion
   (JPEG/PNG/WebP/BMP/TIFF/GIF) and colour → black & white.

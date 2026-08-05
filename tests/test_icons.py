@@ -35,7 +35,6 @@ SIMPLE_FACTORIES = [
     icons.fit,
     icons.play,
     icons.pause,
-    icons.subfolders,
     icons.plugin,
     icons.info,
     icons.wand,

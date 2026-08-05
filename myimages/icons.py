@@ -569,16 +569,6 @@ def table_view() -> QIcon:
     return painted(draw)
 
 
-def subfolders() -> QIcon:
-    def draw(p: QPainter) -> None:
-        p.drawRoundedRect(QRectF(2, 5, 10, 8), 1.5, 1.5)
-        p.drawLine(2, 5, 6, 5)
-        p.drawRoundedRect(QRectF(9, 9, 11, 9), 1.5, 1.5)
-        p.drawLine(9, 9, 13, 9)
-
-    return painted(draw)
-
-
 def plugin() -> QIcon:
     def draw(p: QPainter) -> None:
         p.drawRoundedRect(QRectF(4, 7, 14, 12), 2, 2)
