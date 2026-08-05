@@ -7,7 +7,7 @@ test therefore requests the ``qtbot`` fixture. The factories are called for real
 
 from __future__ import annotations
 
-from PySide6.QtGui import QIcon, QPainterPath
+from PySide6.QtGui import QColor, QIcon, QPainterPath
 
 from myimages import icons
 
@@ -120,3 +120,54 @@ def test_the_column_icon_draws_the_count_it_is_given(qtbot):
     for earlier in range(len(drawn)):
         for later in range(earlier + 1, len(drawn)):
             assert drawn[earlier] != drawn[later]  # each count looks different
+
+
+def dominant_colour(icon: QIcon, size: int = 22) -> tuple[int, int, int]:
+    """The most common fully opaque colour in a rendered icon."""
+    image = icon.pixmap(size, size).toImage()
+    counts: dict[tuple[int, int, int], int] = {}
+    for y in range(image.height()):
+        for x in range(image.width()):
+            pixel = image.pixelColor(x, y)
+            if pixel.alpha() < 250:
+                continue
+            key = (pixel.red(), pixel.green(), pixel.blue())
+            counts[key] = counts.get(key, 0) + 1
+    return max(counts, key=lambda key: counts[key])
+
+
+def test_a_favourite_star_is_gold_not_the_accent(qtbot):
+    """A favourite is a mark on the file, not a control that happens to be on.
+    In the accent it read as a pressed button, and it is the same gold whatever
+    the theme, because it is the colour of the thing rather than of the chrome.
+    """
+    icons.configure("#e8eaed", "#4f8cff")
+    gold = QColor(icons.FAVOURITE_COLOUR)
+    assert dominant_colour(icons.star(True)) == (gold.red(), gold.green(), gold.blue())
+
+    icons.configure("#1a1a1a", "#3d74d6")  # the light scheme
+    assert dominant_colour(icons.star(True)) == (gold.red(), gold.green(), gold.blue())
+
+
+def test_the_star_on_a_photograph_is_gold_too_and_carries_a_dark_edge(qtbot):
+    """It sits bare on whatever the photographer pointed at, so it cannot rely
+    on the panel colour behind it the way the toolbar's star can."""
+    marked = icons.favourite_mark(True)
+    unmarked = icons.favourite_mark(False)
+    assert not marked.isNull() and not unmarked.isNull()
+
+    gold = QColor(icons.FAVOURITE_COLOUR)
+    assert dominant_colour(marked) == (gold.red(), gold.green(), gold.blue())
+
+    edge = QColor(icons.FAVOURITE_EDGE)
+    assert edge.alpha() < 255, "the edge is meant to soften into the picture"
+    # Both states are drawn with that edge, so the unmarked one is findable on a
+    # bright photograph rather than a grey outline lost in a sky.
+    image = unmarked.pixmap(22, 22).toImage()
+    darkest = min(
+        image.pixelColor(x, y).lightness()
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixelColor(x, y).alpha() > 200
+    )
+    assert darkest < 60, f"no dark edge on the unmarked star (darkest={darkest})"

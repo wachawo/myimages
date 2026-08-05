@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A favourite is gold rather than the interface accent. In the accent the star
+  read as a control that happened to be switched on; the mark on a thumbnail
+  was already gold, so the two disagreed about what a favourite looks like.
+  Both now take the same colour from one place, in either theme.
+- The star on the photograph lost the dark disc behind it and is smaller. It
+  keeps the thumbnail badge's dark edge instead, which is what makes it
+  findable over a bright sky without a button drawn on the picture.
+
 ### Fixed
 
 - A queued Intel macOS runner held the whole release behind it. `macos-13` is

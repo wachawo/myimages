@@ -137,10 +137,11 @@ QToolButton:hover {{ border: 1px solid {scheme.accent}; }}
 QToolButton:checked {{ border: 1px solid {scheme.accent}; background: {scheme.panel}; }}
 QToolButton#flat {{ background: transparent; border: none; }}
 QToolButton#flat:hover {{ background: {scheme.panel_alt}; }}
-QToolButton#overlayStar {{
-  background: rgba(0, 0, 0, 0.4); border: none; border-radius: 15px; padding: 0;
-}}
-QToolButton#overlayStar:hover {{ background: rgba(0, 0, 0, 0.6); }}
+/* The favourite star sits bare on the photograph. It had a dark disc behind
+   it, which read as a button on the picture rather than as a mark on the file
+   -- and the gold carries itself against a bright subject where a grey glyph
+   would not. */
+QToolButton#overlayStar {{ background: transparent; border: none; padding: 0; }}
 /* The viewing controls sit on the photograph, so they carry their own dark
    backing: a button drawn straight onto an image is legible over a dark
    subject and invisible over a bright one. */

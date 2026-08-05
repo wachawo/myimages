@@ -15,6 +15,18 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 
 ICON_COLOUR = "#e8eaed"
 ACCENT_COLOUR = "#4f8cff"
+
+# A favourite is gold, not the interface accent. The accent is what the theme
+# uses for "this control is active", and a star in it reads as a pressed button
+# rather than as a mark on the picture. Not themed: it is the colour of the
+# thing, the same in the dark scheme and the light one.
+FAVOURITE_COLOUR = "#ffcf3a"
+
+# The edge the star carries when it is drawn on a photograph rather than on a
+# panel. #AARRGGBB: near-black at 200/255, dark enough to hold against a sky and
+# soft enough not to look like a sticker. Nothing else in the interface needs
+# it, because nothing else is drawn over an image the user chose.
+FAVOURITE_EDGE = "#c8141414"
 CANVAS = 22
 MOST_COLUMNS = 4  # the widest the file list offers
 
@@ -109,14 +121,39 @@ def next_item() -> QIcon:
 
 
 def star(filled: bool) -> QIcon:
+    """The favourite mark: gold when set, an outline in the text colour when not."""
+
     def draw(p: QPainter) -> None:
         path = star_points(11, 11.5, 8.5, 3.6)
         if filled:
-            p.fillPath(path, QColor(ACCENT_COLOUR))
+            p.fillPath(path, QColor(FAVOURITE_COLOUR))
         p.drawPath(path)
 
-    colour = ACCENT_COLOUR if filled else None
+    colour = FAVOURITE_COLOUR if filled else None
     return painted(draw, colour)
+
+
+def favourite_mark(marked: bool) -> QIcon:
+    """The favourite star as it appears *on a photograph*.
+
+    A dark edge in both states, because what is underneath is whatever the
+    photographer pointed at: the toolbar's light grey outline disappears
+    against a bright sky, and a bare gold one is not much better. The same dark
+    edge is what makes the badge on a thumbnail readable over any picture, and
+    this is that badge at button size.
+
+    Unmarked is not an empty outline either. A star with nothing in it reads as
+    a hole punched in the photograph; a wash of white reads as a star waiting to
+    be filled, which is what it is.
+    """
+
+    def draw(p: QPainter) -> None:
+        path = star_points(11, 11.5, 8.5, 3.6)
+        fill = QColor(FAVOURITE_COLOUR) if marked else QColor(255, 255, 255, 90)
+        p.fillPath(path, fill)
+        p.drawPath(path)
+
+    return painted(draw, FAVOURITE_EDGE)
 
 
 def crop() -> QIcon:

@@ -76,6 +76,11 @@ def load_pixmap(path: str | Path) -> QPixmap:
 OVERLAY_ICON = 14
 OVERLAY_PADDING = 4
 
+# The favourite star on the photograph. Smaller than the badge it echoes on a
+# thumbnail: this one sits over a whole picture rather than a 128px tile, and
+# at the size it was it read as a control rather than as a mark.
+OVERLAY_STAR = 16
+
 # Pages rendered per batch: enough to fill a few screens, small enough that a
 # huge document opens instantly instead of freezing while every page rasterises.
 PDF_PAGE_BATCH = 8
@@ -228,9 +233,9 @@ class PreviewPane(QWidget):
         # A favourite star floating over the top-right of the preview.
         self.favorite_button = QToolButton(self)
         self.favorite_button.setObjectName("overlayStar")
-        self.favorite_button.setIcon(icons.star(False))
-        self.favorite_button.setIconSize(QSize(18, 18))
-        self.favorite_button.setFixedSize(30, 30)
+        self.favorite_button.setIcon(icons.favourite_mark(False))
+        self.favorite_button.setIconSize(QSize(OVERLAY_STAR, OVERLAY_STAR))
+        self.favorite_button.setFixedSize(OVERLAY_STAR + 4, OVERLAY_STAR + 4)
         self.favorite_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.favorite_button.setToolTip("Mark as favourite")
         self.favorite_button.clicked.connect(self.favorite_toggled.emit)
@@ -335,7 +340,7 @@ class PreviewPane(QWidget):
     def set_favorite(self, favorite: bool) -> None:
         """Reflect whether the current file is a favourite on the overlay star."""
         self.favorite_state = favorite
-        self.favorite_button.setIcon(icons.star(favorite))
+        self.favorite_button.setIcon(icons.favourite_mark(favorite))
 
     def set_resolution(self, text: str) -> None:
         """Show a pixel-size badge (e.g. ``1920 × 1080``); empty text hides it."""

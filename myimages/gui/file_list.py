@@ -504,8 +504,8 @@ class FileListPanel(QWidget):
         size = max(9, round(width * 0.15))
         centre = QPointF(width - size - 3, size + 3)
         star = icons.star_points(centre.x(), centre.y(), size, size * 0.42)
-        painter.setPen(QPen(QColor(20, 20, 20, 200), 1.4))
-        painter.setBrush(QColor("#ffcf3a"))
+        painter.setPen(QPen(QColor(icons.FAVOURITE_EDGE), 1.4))
+        painter.setBrush(QColor(icons.FAVOURITE_COLOUR))
         painter.drawPath(star)
         painter.end()
         return result
